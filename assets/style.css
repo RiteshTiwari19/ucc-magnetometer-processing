@@ -1,0 +1,82 @@
+.Select-control {
+    background-color: rgb(25, 25, 25) !important;
+    color:white;
+}
+
+.Select-value-label {
+    color: white !important;
+}
+
+.Select-menu-outer {
+    background-color: rgb(25, 25, 25);
+    color: white;
+}
+
+/*#project-container-div:hover {*/
+/*    background-color: blue;*/
+/*}*/
+
+.zoom {
+  transition: transform .2s; /* Animation */
+}
+
+.zoom:hover {
+  transform: scale(1.05); /* (150% zoom - Note: if the zoom is too large, it will go outside of the viewport) */}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+    background-color: rgb(25, 25, 25)!important;
+    /*color: white;*/
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+    background-color: #1b2021 !important;
+}
+
+label.form-label {
+    color: #4dd0e1 !important;
+}
+
+.loading-spinner {
+
+}
+/*.multi-plot-layout-spinner {*/
+/*    flex: 1 1 0;*/
+/*}*/
+
+.multi-plot-layout-flex:first-child {
+    flex: 1 1 0!important;
+}
+
+.hide-div {
+    display: none!important;
+}
+
+.show-div {
+    display: flex!important;
+}
+
+.one-per-row {
+    flex-direction: column!important;
+}
+
+.two-per-row {
+    flex-direction: row!important;
+}
+
+.plot-layout-full-stretch {
+    flex: 1 1 0;
+    max-width: 100%;
+    min-width: 50%;
+}
+
+.plot-layout-half-stretch {
+    flex: 1 1 0;
+    max-width: 50%;
+    min-width: 50%;
+}
+
+.fix-bottom-right {
+    position: absolute;
+    bottom: 50px;
+    right: 50px;
+}
