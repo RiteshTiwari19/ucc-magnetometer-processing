@@ -4,16 +4,13 @@ import dash
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import dash_uploader as du
-import pandas as pd
 from dash import dcc, html, Patch
 from dash.dependencies import Output, Input
 from flask import session
 
 from auth import AppIDAuthProvider
-from components import FileUploadTabs, Sidebar, Settings, Workspaces, MagDataComponent, Toast, DataTableNative, \
-    ModalComponent
+from components import FileUploadTabs, Sidebar, Settings, Workspaces, MagDataComponent, Toast, ModalComponent
 from dataservices import InMermoryDataService
-from flask_caching import Cache
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
 
@@ -37,6 +34,7 @@ app.layout = dmc.MantineProvider(
     children=dmc.NotificationsProvider(html.Div([
         dcc.Location(id="url"),
         dcc.Interval(id="auth-check-interval", interval=1500000),
+        dcc.Interval(id="notification-checker", interval=1*1000, n_intervals=0),
         dcc.Store(id='local', storage_type='local', data={}),
         html.Div([
             html.Div(id='toast-placeholder-div'),
@@ -58,7 +56,7 @@ app.layout = dmc.MantineProvider(
     ], style={'margin': 0, 'display': 'flex', 'flexDirection': 'column'})),
     theme={"colorScheme": "dark",
            "colors":
-               {"wine-red": ["#C85252"]*9}
+               {"wine-red": ["#C85252"] * 9}
            }
 )
 

@@ -57,6 +57,7 @@ datasets_tabs = html.Div(
 
 def get_upload_file_tab_content(configured_du, upload_id):
     content = html.Div([
+        dmc.Affix(id='notify-container-placeholder-div', position={"bottom": 30, "right": 30}),
         get_stepper(configured_du, upload_id),
     ],
         style={
