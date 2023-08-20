@@ -1,6 +1,7 @@
 import glob
 import os
 import shutil
+import time
 from zipfile import ZipFile
 
 import dash
@@ -9,6 +10,7 @@ import dash_mantine_components as dmc
 import numpy as np
 import pandas as pd
 from dash import html, Output, Input, callback, no_update, State, ctx, clientside_callback, Patch, ALL
+from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 from flask import session
 
@@ -17,6 +19,7 @@ from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPa
 from dataservices import InMermoryDataService
 from utils import Utils
 from FlaskCache import background_callback_manager, celery_app
+from utils import Consts
 
 min_step = 0
 max_step = 3
@@ -58,7 +61,7 @@ datasets_tabs = html.Div(
 
 def get_upload_file_tab_content(configured_du, upload_id):
     content = html.Div([
-        dmc.Affix(id='notify-container-placeholder-div', position={"bottom": 30, "right": 30}),
+        # dmc.Affix(id='notify-container-placeholder-div', position={"bottom": 30, "right": 30}),
         get_stepper(configured_du, upload_id),
     ],
         style={
@@ -160,7 +163,7 @@ def selected_dataset(value):
         return "hide-div"
 
 
-def read_observatory_data(blob_path):
+def read_observatory_data(blob_path, session_store):
     ret_df = pd.DataFrame({})
     observatory_files = glob.glob(blob_path)
     for idx, file in enumerate(observatory_files):
@@ -170,29 +173,29 @@ def read_observatory_data(blob_path):
         except:
             print(f'Unable to read file {file}')
 
-    save_location = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
+    save_location = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
     ret_df.to_csv(save_location)
-    shutil.rmtree(os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\extracted\\")
+    shutil.rmtree(os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\extracted\\")
     return ret_df.reset_index(drop=True)
 
 
-def get_upload_data_content(data_path=None):
-    selected_path = session[AppIDAuthProvider.LAST_DATASET_UPLOADED]
+def get_upload_data_content(session_store, data_path):
+    selected_path = session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED]
     if data_path:
         if selected_path.endswith('.csv'):
-            df = pd.read_csv(session[AppIDAuthProvider.LAST_DATASET_UPLOADED]).dropna().sample(2000)
+            df = pd.read_csv(session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED]).dropna().sample(2000)
         else:
             if selected_path.endswith('.zip'):
                 data_path_file = selected_path.split('/')[-1]
-                data_path = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\{data_path_file}"
+                data_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\{data_path_file}"
                 with ZipFile(data_path, 'r') as z_object:
-                    extract_path = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\extracted"
+                    extract_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\extracted"
                     if not os.path.exists(extract_path):
                         os.mkdir(extract_path)
 
                     try:
                         z_object.extractall(path=f"{extract_path}")
-                        df = read_observatory_data(f'{extract_path}\\*.txt').sample(2000)
+                        df = read_observatory_data(f'{extract_path}\\*.txt', session_store).sample(2000)
                         df = df.loc[:, df.columns[:-1]]
                     except Exception as e:
                         print(e)
@@ -215,7 +218,7 @@ def get_upload_data_content(data_path=None):
                              gradient={"from": "red", "to": "yellow", "deg": 45},
                              style={"fontSize": 20})),
 
-                *get_data_cols(session, df)
+                *get_data_cols(session_store, df)
 
             ]
             ),
@@ -228,7 +231,7 @@ def get_upload_data_content(data_path=None):
 
 def get_review_and_finalize_content(data_path=None,
                                     data_type='SURVEY_DATA',
-                                    session=None):
+                                    session_store=None):
     if data_path:
 
         df = pd.read_csv(data_path)
@@ -243,7 +246,7 @@ def get_review_and_finalize_content(data_path=None,
                 html.Div(
                     DataUploadSummaryPageComponent.get_upload_summary(data_type,
                                                                       df,
-                                                                      session),
+                                                                      session_store),
                     id='data-table-container'
                 )
             ]
@@ -255,7 +258,8 @@ def get_review_and_finalize_content(data_path=None,
         return html.Div()
 
 
-def save_and_validate_survey_data(dataset_type_name, data_path, dataset_name, lat_long_switch, latitude, longitude,
+def save_and_validate_survey_data(set_progress, session_store,
+                                  dataset_type_name, data_path, dataset_name, lat_long_switch, latitude, longitude,
                                   easting_northing_switch, easting,
                                   northing, zone, depth_altitude_switch, depth, altitude,
                                   depth_regex, alt_regex, total_field, datetime):
@@ -283,11 +287,9 @@ def save_and_validate_survey_data(dataset_type_name, data_path, dataset_name, la
             col_map[northing] = 'Northing'
             col_map[zone] = 'Zone'
     if depth_altitude_switch:
-        if not depth or not altitude:
-            pass
-            # err_message += ["Depth and Altitude must be provided"]
-        else:
+        if depth:
             col_map[depth] = 'Depth'
+        if altitude:
             col_map[altitude] = 'Altitude'
 
     if len(err_message) > 0:
@@ -297,6 +299,10 @@ def save_and_validate_survey_data(dataset_type_name, data_path, dataset_name, la
             col_map_keys = list(col_map.keys())
             df = pd.read_csv(data_path)[col_map_keys]
             df = df.rename(columns=col_map)
+
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Performing Type Conversion!"
+            set_progress(NotificationProvider.notify(progress_message,
+                                                     action='update'))
 
             df = df[df['Easting'] != '*']
             df['Magnetic_Field'] = df['Magnetic_Field'].astype(float)
@@ -319,10 +325,9 @@ def save_and_validate_survey_data(dataset_type_name, data_path, dataset_name, la
             err_message += [str(e)]
 
         if len(err_message) == 0:
-            save_path = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\processed"
+            save_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\processed"
             if not os.path.exists(save_path):
                 os.mkdir(save_path)
-
             df.to_csv(f'{save_path}\\{dataset_name}.csv')
 
             return f'{save_path}\\{dataset_name}.csv', None
@@ -330,7 +335,8 @@ def save_and_validate_survey_data(dataset_type_name, data_path, dataset_name, la
             return None, err_message
 
 
-def save_and_validate_observatory_data(dataset_type_name,
+def save_and_validate_observatory_data(session_store,
+                                       dataset_type_name,
                                        dataset_name,
                                        data_path,
                                        observatory_data_switch,
@@ -383,17 +389,12 @@ def save_and_validate_observatory_data(dataset_type_name,
             err_message += [str(e)]
 
         if len(err_message) == 0:
-            save_path = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\processed"
+            save_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\processed"
             if not os.path.exists(save_path):
                 os.mkdir(save_path)
 
             df.to_csv(f'{save_path}\\{dataset_name}.csv')
-            # InMermoryDataService.DatasetsService.datasets \
-            #     .append(InMermoryDataService.Dataset(name=dataset_name,
-            #                                          path=f'{save_path}\\{dataset_name}.csv',
-            #                                          dataset_type=InMermoryDataService.DatasetsService \
-            #                                          .get_dataset_type_by_name(dataset_type_name),
-            #                                          projects=[]))
+
             return f'{save_path}\\{dataset_name}.csv', None
         else:
             return None, err_message
@@ -415,13 +416,17 @@ def save_and_validate_observatory_data(dataset_type_name,
     Input({'type': 'upload-select-dropdown', 'idx': ALL}, 'value'),
     Input({'type': 'upload-checker', 'idx': ALL}, 'checked'),
     Input({'type': 'upload-text-input', 'idx': ALL}, 'value'),
-    prevent_initial_call=True
+    progress=Output("notify-container-placeholder-div", "children"),
+    prevent_initial_call=True,
+    background=True,
+    manager=background_callback_manager
 )
-def update(back, next_, current, session_store,
+def update(set_progress, back, next_, current, session_store,
            select_state_vars,
            checkbox_state_vars,
            input_state_vars):
     button_id = ctx.triggered_id
+
     step = current if current is not None else active
     if ctx.triggered[0]['value'] and type(button_id) == str:
         if button_id == "stepper-back-button":
@@ -432,11 +437,19 @@ def update(back, next_, current, session_store,
         data_content = no_update
         review_and_finalize_content = no_update
         if current == 0:
-            data_content = get_upload_data_content(session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED])
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading; Reading Dataset!"
+            set_progress(NotificationProvider.notify(progress_message, action='show', notification_id='c0'))
+            data_content = get_upload_data_content(session_store,
+                                                   session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED])
 
+            time.sleep(1)
+            progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Dataset Loaded!"
+            set_progress(NotificationProvider.notify(progress_message, action='update', notification_id='c0'))
         elif current == 1:
-            dataset_id = session[AppIDAuthProvider.DATASET_TYPE_SELECTED]
-            dataset_name = session[AppIDAuthProvider.DATASET_NAME]
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Validation;Validating Data!"
+            set_progress(NotificationProvider.notify(progress_message, action="show"))
+            dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
+            dataset_name = session_store[AppIDAuthProvider.DATASET_NAME]
             dataset_type_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
 
             saved_data_path, errors = "", []
@@ -450,6 +463,8 @@ def update(back, next_, current, session_store,
                 element_values = Utils.Utils.get_element_states(ctx.args_grouping, element_ids)
 
                 saved_data_path, errors = save_and_validate_survey_data(
+                    set_progress,
+                    session_store,
                     dataset_type_name=dataset_type_name,
                     data_path=data_path,
                     dataset_name=dataset_name,
@@ -468,18 +483,20 @@ def update(back, next_, current, session_store,
                     total_field=element_values['magentic_field'],
                     datetime=element_values['datetime']
                 )
+
             elif dataset_type_name == 'OBSERVATORY_DATA':
-                if session[AppIDAuthProvider.LAST_DATASET_UPLOADED].split('.')[-1] == 'zip':
-                    data_path = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
+                if session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED].split('.')[-1] == 'zip':
+                    data_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
                 else:
-                    data_path = session[AppIDAuthProvider.LAST_DATASET_UPLOADED]
+                    data_path = session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED]
 
                 element_ids = ['mag_directional', 'magentic_field_obs', 'datetime_obs', 'bx', 'by', 'bz',
                                'datetime-xyz']
                 element_values = Utils.Utils.get_element_states(ctx.args_grouping, element_ids)
 
                 saved_data_path, errors = save_and_validate_observatory_data(
-                    dataset_name=session[AppIDAuthProvider.DATASET_NAME],
+                    session_store,
+                    dataset_name=session_store[AppIDAuthProvider.DATASET_NAME],
                     dataset_type_name=dataset_type_name,
                     data_path=data_path,
                     observatory_data_switch=element_values['mag_directional'],
@@ -489,7 +506,11 @@ def update(back, next_, current, session_store,
                     datetime_xyz=element_values['datetime-xyz']
                 )
 
-            review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name, session)
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading;Generating survey region plot!"
+            set_progress(NotificationProvider.notify(progress_message, action='update'))
+
+            review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name,
+                                                                          session_store)
             InMermoryDataService.DatasetsService.datasets \
                 .append(InMermoryDataService.Dataset(name=dataset_name,
                                                      # path=f'{save_path}\\{dataset_name}.csv',
@@ -497,6 +518,8 @@ def update(back, next_, current, session_store,
                                                      dataset_type=InMermoryDataService.DatasetsService \
                                                      .get_dataset_type_by_name(dataset_type_name),
                                                      projects=[]))
+            final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"
+            set_progress(NotificationProvider.notify(final_progress_message, action='update'))
 
         else:
             data_content = no_update
@@ -629,9 +652,15 @@ def update_depth_regex_div(depth_col, alt_col, depth_state, depth_regex, alt_reg
 
     try:
         if triggered_id == 'altitude':
+
+            if not alt_col or not alt_regex:
+                return no_update, no_update
+
             target_col = alt_col
             target_regex = alt_regex
         elif triggered_id == 'depth':
+            if not depth_col or not depth_regex:
+                return no_update, no_update
             target_col = depth_col
             target_regex = depth_regex
 
@@ -654,6 +683,10 @@ def update_selected_dataset(sd, d_name):
     patch = Patch()
     session[AppIDAuthProvider.DATASET_TYPE_SELECTED] = sd
     session[AppIDAuthProvider.DATASET_NAME] = d_name
+
+    patch[AppIDAuthProvider.DATASET_TYPE_SELECTED] = sd
+    patch[AppIDAuthProvider.DATASET_NAME] = d_name
+
     return patch
 
 
@@ -665,9 +698,7 @@ def get_select_dropdown(columns, label, dropdown_id, required=True, icon=None):
         searchable=True,
         nothingFound="No such column",
         icon=icon,
-        persistence=True,
-        persistence_type='session',
-        persisted_props=['value'],
+        persistence=False,
         placeholder='Select',
         selectOnBlur=True,
         clearable=True,
@@ -879,8 +910,11 @@ def get_observatory_data_form(df):
     return ret_val
 
 
-def get_data_cols(session, df):
-    dataset_id = session[AppIDAuthProvider.DATASET_TYPE_SELECTED]
+def get_data_cols(session_store, df):
+    print('I AM GETTING CALLED BUOIY')
+    print(session_store)
+    dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
+
     dataset_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
     ret_val = None
     if dataset_name == 'SURVEY_DATA':

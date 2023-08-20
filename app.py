@@ -34,7 +34,7 @@ app.layout = dmc.MantineProvider(
     children=dmc.NotificationsProvider(html.Div([
         dcc.Location(id="url"),
         dcc.Interval(id="auth-check-interval", interval=1500000),
-        dcc.Interval(id="notification-checker", interval=1*1000, n_intervals=0),
+        html.Div(id='notify-container-placeholder-div'),
         dcc.Store(id='local', storage_type='local', data={}),
         html.Div([
             html.Div(id='toast-placeholder-div'),
@@ -53,7 +53,9 @@ app.layout = dmc.MantineProvider(
                   'alignSelf': 'stretch',
                   }, id='app_layout_div'),
 
-    ], style={'margin': 0, 'display': 'flex', 'flexDirection': 'column'})),
+    ], style={'margin': 0, 'display': 'flex', 'flexDirection': 'column'}),
+        limit=4
+    ),
     theme={"colorScheme": "dark",
            "colors":
                {"wine-red": ["#C85252"] * 9}
@@ -63,17 +65,24 @@ app.layout = dmc.MantineProvider(
 Sidebar.hover(app)
 
 
-@app.callback(Output("page-content", "children"), [Input("url", "pathname")])
+@app.callback(
+    Output("page-content", "children"),
+    Output("local", "data"),
+    [Input("url", "pathname")]
+)
 @auth.check
 def render_page_content(pathname):
+    patch = Patch()
+    patch[AppIDAuthProvider.APPID_USER_NAME] = session[AppIDAuthProvider.APPID_USER_NAME]
+    patch[AppIDAuthProvider.APPID_USER_EMAIL] = session[AppIDAuthProvider.APPID_USER_EMAIL]
     if pathname == "/dashboard/":
-        return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces))
+        return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces)), patch
     elif pathname == "/dashboard/datasets":
-        return FileUploadTabs.datasets_tabs
+        return FileUploadTabs.datasets_tabs, patch
     elif pathname == "/dashboard/explore":
-        return html.P("Oh cool, this is page 2!")
+        return html.P("Oh cool, this is page 2!"), patch
     elif pathname == "/dashboard/settings":
-        return Settings.get_settings_page(session)
+        return Settings.get_settings_page(session), patch
     # If the user tries to reach a different page, return a 404 message
     return html.Div(
         [
@@ -82,7 +91,7 @@ def render_page_content(pathname):
             html.P(f"The pathname {pathname} was not recognised..."),
         ],
         className="p-3 bg-dark rounded-3",
-    )
+    ), patch
 
 
 @du.callback(

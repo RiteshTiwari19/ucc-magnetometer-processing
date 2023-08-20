@@ -49,8 +49,11 @@ class UserService:
 
 
 class DatasetType:
-    def __init__(self, name, description):
-        self.id = uuid.uuid4()
+    def __init__(self, name, description, dataset_id=None):
+        if dataset_id:
+            self.id = dataset_id
+        else:
+            self.id = uuid.uuid4()
         self.name = name
         self.description = description
 
@@ -70,14 +73,17 @@ class DatasetsService:
     dataset_types = [
         DatasetType('SURVEY_DATA', 'Datasets for marine survey, should contain columns for Index ' +
                     '(recording sequence), Latitude, Longitude, Magnetic Field, Datetime. ' +
-                    '<br> If Easting and Northing are provided, then Zone must also be provided'),
+                    '<br> If Easting and Northing are provided, then Zone must also be provided',
+                    dataset_id='51767926-f1e6-4afa-a2de-501f23fa5ac5'),
         DatasetType('OBSERVATORY_DATA', 'Datasets for diurnal correction, must contain Magnetic Field readings<br> ' +
                     'Either Magnetic Field for each axis can be provided or the total Magnetic Field must be provided ' +
-                    '<br>Required Columns: Magnetic Fields, Datetime'),
+                    '<br>Required Columns: Magnetic Fields, Datetime',
+                    dataset_id='dd1c8c46-223c-4dd1-9a98-4f046b5608bb'),
         DatasetType('BATHYMETRY_DATA', 'Datasets containing depth information of a survey area, can be used to ' +
                     'perform depth correction on the survey data. ' +
                     '<br>Required Columns: Depth, [Latitude, Longitude] or [Easting, Northing '
-                    'with zone information] or both')
+                    'with zone information] or both',
+                    dataset_id='1bec50c8-0f71-4585-b078-08d7f410fd92')
     ]
 
     datasets = [Dataset(name='Sealink 16_02', projects=[],
@@ -124,6 +130,7 @@ class DatasetsService:
 
     @classmethod
     def get_dataset_type_by_id(cls, dataset_id):
+        print([d.id.__str__() for d in cls.dataset_types])
         dataset_type = [d for d in cls.dataset_types if d.id.__str__() == dataset_id][0]
         return dataset_type.name
 

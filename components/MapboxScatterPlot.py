@@ -36,6 +36,34 @@ def get_mapbox_plot(df,
     fig.update_layout(template='plotly_dark')
     return fig
 
+def get_mapbox_plot_uncached(df,
+                    df_name,
+                    col_to_plot,
+                    sampling_frequency=50,
+                    color_scale='icefire',
+                    latitude_col='Latitude',
+                    longitude_col='Longitude',
+                    color_column='Magnetic_Field',
+                    hover_name='Magnetic_Field',
+                    hover_data='Magnetic_Field'):
+
+    fig = px.scatter_mapbox(df[::sampling_frequency],
+                            lat=latitude_col,
+                            lon=longitude_col,
+                            hover_name=hover_name,
+                            hover_data=hover_data,
+                            color_continuous_scale=color_scale,
+                            zoom=8
+                            )
+
+    print('GET MAPBOX PLOT GOT CALLED')
+
+    fig.update_layout(mapbox_style='open-street-map')
+    fig.update_layout(margin={'r': 0, 't': 0, 'l': 0, 'b': 0})
+    fig.update_layout(template='plotly_dark')
+    return fig
+
+
 
 def get_mapbox_plot_raster(selected_dataset):
     df = ResidualService.ResidualService.calculate_residuals(selected_dataset).head(100000)

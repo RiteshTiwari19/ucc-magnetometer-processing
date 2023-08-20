@@ -24,11 +24,9 @@ def get_upload_summary(data_type, data_frame, session):
         if 'Altitude' in data_frame.columns:
             col_subset += ['Altitude']
 
-    summary_df = data_frame[col_subset].describe(exclude=[object])\
-        .reset_index()\
+    summary_df = data_frame[col_subset].describe(exclude=[object]) \
+        .reset_index() \
         .rename(columns={'index': 'Statistic'})
-    # session[Consts.Consts.NOTIFS_MESSAGE] = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing; Generating survey region plot"
-    # session.modified = True
 
     return dmc.Stack(children=[
         DataTableNative.get_native_datable(summary_df, datatable_id='dataset-summary-df'),
@@ -42,10 +40,10 @@ def get_data_specific_content(summary_df):
 
 
 def get_data_specific_plot(df, selected_dataset, render_option='plot'):
-    fig = MapboxScatterPlot.get_mapbox_plot(df=df,
-                                            df_name=selected_dataset,
-                                            col_to_plot='Magnetic_Field',
-                                            sampling_frequency=100)
+    fig = MapboxScatterPlot.get_mapbox_plot_uncached(df=df,
+                                                     df_name=selected_dataset,
+                                                     col_to_plot='Magnetic_Field',
+                                                     sampling_frequency=100)
 
     fig.update_coloraxes(showscale=False)
     if render_option == 'image':
@@ -65,4 +63,3 @@ def get_data_specific_plot(df, selected_dataset, render_option='plot'):
                          style={"fontSize": 20})),
             dcc.Graph(id='data-upload-summary-region-plot', figure=fig, style={'width': '100%'})
         ])
-
