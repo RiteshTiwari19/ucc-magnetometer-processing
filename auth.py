@@ -6,7 +6,7 @@ import dash_bootstrap_components as dbc
 import jwt
 import pkce
 import requests
-from dash import html, dcc
+from dash import html, dcc, no_update
 from FlaskCache import cache
 from flask import Flask, redirect, request, session
 from jwt.exceptions import ExpiredSignatureError
@@ -150,11 +150,11 @@ class AppIDAuthProvider:
                                     ), style={'size': '100%'})
                                 ), style={'width': '100%'})
 
-                        ]
+                        ], no_update
 
                     err_msg = "Internal error: " + err_msg
                     return [html.Div(children=err_msg,
-                                     style={"textAlign": "center", "font-size": "20px", "color": "red"})]
+                                     style={"textAlign": "center", "font-size": "20px", "color": "red"})], no_update
                 else:
                     return [
                         html.Div(
@@ -178,11 +178,11 @@ class AppIDAuthProvider:
                                 ), style={'size': '100%'})
                             ), id='no-auth', style={'width': '100%'})
 
-                    ]
+                    ], no_update
             else:
                 if not cls._user_has_a_role():
                     return [html.Div(children="Unauthorized!",
-                                     style={"textAlign": "center", "font-size": "20px", "color": "red"})]
+                                     style={"textAlign": "center", "font-size": "20px", "color": "red"})], no_update
                 else:
                     return func(*args, **kwargs)
 
