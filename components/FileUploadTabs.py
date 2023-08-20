@@ -13,9 +13,10 @@ from dash_iconify import DashIconify
 from flask import session
 
 from auth import AppIDAuthProvider
-from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPageComponent
+from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPageComponent, NotificationProvider
 from dataservices import InMermoryDataService
 from utils import Utils
+from FlaskCache import background_callback_manager, celery_app
 
 min_step = 0
 max_step = 3
@@ -171,7 +172,7 @@ def read_observatory_data(blob_path):
 
     save_location = os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
     ret_df.to_csv(save_location)
-    shutil.rmtree(os.getcwd()+f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\extracted\\")
+    shutil.rmtree(os.getcwd() + f"\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\extracted\\")
     return ret_df.reset_index(drop=True)
 
 
@@ -368,13 +369,14 @@ def save_and_validate_observatory_data(dataset_type_name,
 
             col_map_keys = list(col_map.keys())
 
-            df = pd.read_csv(data_path)[col_map_keys] if data_path.endswith('csv') else pd.read_table(data_path, index_col=False)[col_map_keys]
+            df = pd.read_csv(data_path)[col_map_keys] if data_path.endswith('csv') else \
+                pd.read_table(data_path, index_col=False)[col_map_keys]
             df = df.rename(columns=col_map)
 
             df['Datetime'] = pd.to_datetime(df['Datetime'], format="mixed")
 
             if 'Magnetic_Field' not in df.columns:
-                df['Magnetic_Field'] = df.apply(lambda x: np.sqrt(x['bx']**2 + x['by']**2 + x['bz']**2), axis=1)
+                df['Magnetic_Field'] = df.apply(lambda x: np.sqrt(x['bx'] ** 2 + x['by'] ** 2 + x['bz'] ** 2), axis=1)
                 df['Magnetic_Field'] = df['Magnetic_Field'].astype(float)
 
         except Exception as e:
@@ -413,7 +415,7 @@ def save_and_validate_observatory_data(dataset_type_name,
     Input({'type': 'upload-select-dropdown', 'idx': ALL}, 'value'),
     Input({'type': 'upload-checker', 'idx': ALL}, 'checked'),
     Input({'type': 'upload-text-input', 'idx': ALL}, 'value'),
-    prevent_initial_call=True,
+    prevent_initial_call=True
 )
 def update(back, next_, current, session_store,
            select_state_vars,
