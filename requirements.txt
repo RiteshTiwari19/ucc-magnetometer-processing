@@ -15,7 +15,7 @@ dash-uploader==0.7.0a1
 packaging==21.3
 scipy
 datashader
-dash_mantine_components
+dash_mantine_components==0.12.1
 dash_iconify
 kaleido
 dask

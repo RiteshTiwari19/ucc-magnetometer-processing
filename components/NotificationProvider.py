@@ -1,12 +1,13 @@
 import dash_mantine_components as dmc
 from dash_iconify import DashIconify
-
+from dash import callback_context, no_update
 from utils import Consts
 
 
 def notify(message: str, action='show', notification_id='my-notification'):
     children_content = message.split(';')
-    print(f'I WAS DEFINITELY CALLED HERE: {action}: {notification_id}')
+    if not callback_context.triggered:
+        return no_update
     if children_content[0] == Consts.Consts.LOADING_DISPLAY_STATE:
         return dmc.Notification(
             id=notification_id,

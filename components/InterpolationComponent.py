@@ -3,6 +3,7 @@ import time
 import dash
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
+from datetime import datetime, date
 import numpy as np
 import plotly.express as px
 from dash import dcc, html, Input, Output, State, Patch, no_update, ALL, callback, clientside_callback, callback_context
@@ -152,6 +153,14 @@ def get_interpolation_page(session):
                      'justifyContent': 'flex-start'
                  }),
         html.Br(),
+        dmc.DatePicker(
+            id="date-picker",
+            label="Start Date",
+            description="You can also provide a description",
+            minDate=date(2020, 8, 5),
+            value=datetime.now().date(),
+            style={"maxWidth": '40%', "width": '40%'},
+        ),
         dmc.Group([
             dmc.Switch(label="Display one plot per row?",
                        checked=False,

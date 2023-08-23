@@ -450,7 +450,6 @@ def switch_plot_layout(checked, state):
 )
 def switch_tab(btn_click):
     if btn_click is not None:
-        print('camera wowo bitches')
         return "mag_data_interpolation"
     else:
         return no_update

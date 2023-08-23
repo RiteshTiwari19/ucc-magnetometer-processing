@@ -21,6 +21,10 @@ from utils import Utils
 from FlaskCache import background_callback_manager, celery_app
 from utils import Consts
 
+from dask.distributed import Client, LocalCluster
+import dask.dataframe as ddf
+import dask.array as da
+
 min_step = 0
 max_step = 3
 active = 0
@@ -164,19 +168,27 @@ def selected_dataset(value):
 
 
 def read_observatory_data(blob_path, session_store):
-    ret_df = pd.DataFrame({})
-    observatory_files = glob.glob(blob_path)
-    for idx, file in enumerate(observatory_files):
-        try:
-            df = pd.read_table(file, index_col=False)
-            ret_df = pd.concat([ret_df, df])
-        except:
-            print(f'Unable to read file {file}')
+    cluster = LocalCluster()
+    client = Client(cluster)
+    dask_df = ddf.read_table(blob_path).reset_index()
+
+    cols = list(dask_df.columns) + ['RangeIndex']
+    dask_df = dask_df.reset_index()
+    dask_df.columns = cols
+    dask_df = dask_df[cols[:-1]]
+
+    fraction_to_read = 2000 / dask_df.count().compute()[1]
+    dask_df_sample = dask_df.sample(frac=fraction_to_read).compute()
 
     save_location = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
-    ret_df.to_csv(save_location)
+    dask_df.to_csv(save_location, single_file=True, compute=True)
+
     shutil.rmtree(os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\extracted\\")
-    return ret_df.reset_index(drop=True)
+
+    client.close()
+    cluster.close()
+
+    return dask_df_sample.reset_index()
 
 
 def get_upload_data_content(session_store, data_path):
@@ -195,10 +207,11 @@ def get_upload_data_content(session_store, data_path):
 
                     try:
                         z_object.extractall(path=f"{extract_path}")
-                        df = read_observatory_data(f'{extract_path}\\*.txt', session_store).sample(2000)
-                        df = df.loc[:, df.columns[:-1]]
+                        df = read_observatory_data(f'{extract_path}\\*.txt', session_store)
+                        # df = df.loc[:, df.columns[:-1]]
                     except Exception as e:
                         print(e)
+                os.remove(data_path)
             else:
                 df = pd.read_table(selected_path, index_col=False).sample(8)
         return dmc.LoadingOverlay(
@@ -335,7 +348,8 @@ def save_and_validate_survey_data(set_progress, session_store,
             return None, err_message
 
 
-def save_and_validate_observatory_data(session_store,
+def save_and_validate_observatory_data(set_progress,
+                                       session_store,
                                        dataset_type_name,
                                        dataset_name,
                                        data_path,
@@ -344,6 +358,14 @@ def save_and_validate_observatory_data(session_store,
     err_message = []
 
     col_map = {}
+
+    cluster = LocalCluster()
+    client = Client(cluster)
+
+    time.sleep(1)
+    progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Validation;Validating Observatory Data!"
+    set_progress(NotificationProvider.notify(progress_message, action="show", notification_id='zip-processor'))
+    time.sleep(1)
 
     if observatory_data_switch:
         if not bx or not by or not bz:
@@ -374,26 +396,52 @@ def save_and_validate_observatory_data(session_store,
         try:
 
             col_map_keys = list(col_map.keys())
+            print(col_map_keys)
 
-            df = pd.read_csv(data_path)[col_map_keys] if data_path.endswith('csv') else \
-                pd.read_table(data_path, index_col=False)[col_map_keys]
+            df = ddf.read_csv(data_path)[col_map_keys] if data_path.endswith('csv') else \
+                ddf.read_table(data_path)[col_map_keys]
+
+            print(df.columns)
             df = df.rename(columns=col_map)
+            time.sleep(1)
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Parsing Date!"
+            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            time.sleep(1)
 
-            df['Datetime'] = pd.to_datetime(df['Datetime'], format="mixed")
+            df = df.assign(Datetime=ddf.to_datetime(df['Datetime'], format='%d/%m/%Y %H:%M:%S'))
+            df = df.assign(Date=df['Datetime'].dt.date)
+            print('Assigned Datetime')
 
             if 'Magnetic_Field' not in df.columns:
-                df['Magnetic_Field'] = df.apply(lambda x: np.sqrt(x['bx'] ** 2 + x['by'] ** 2 + x['bz'] ** 2), axis=1)
-                df['Magnetic_Field'] = df['Magnetic_Field'].astype(float)
+                time.sleep(1)
+                progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Computing Total Field!"
+                set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+                time.sleep(1)
+                df = df.assign(Magnetic_Field=da.sqrt(df['bx']**2 + df['by']**2 + df['bz']**2))
+                df = df.assign(Magnetic_Field_Smoothed=df['Magnetic_Field']
+                               .rolling(window=100, win_type='boxcar', center=True, min_periods=1).mean())
+                df = df.assign(Baseline=df['Magnetic_Field_Smoothed'] - df['Magnetic_Field_Smoothed'].mean())
 
         except Exception as e:
             err_message += [str(e)]
+            print(f'Received ERROR WHEN PROC {err_message}')
 
         if len(err_message) == 0:
             save_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\processed"
             if not os.path.exists(save_path):
                 os.mkdir(save_path)
 
-            df.to_csv(f'{save_path}\\{dataset_name}.csv')
+            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Saving;Saving Observatory Data!"
+            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            df.to_csv(f'{save_path}\\{dataset_name}.csv', single_file=True, compute=True)
+            os.remove(data_path)
+            client.close()
+            cluster.close()
+
+            time.sleep(0.5)
+            progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Saved Observatory Data!"
+            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            time.sleep(0.5)
 
             return f'{save_path}\\{dataset_name}.csv', None
         else:
@@ -446,8 +494,6 @@ def update(set_progress, back, next_, current, session_store,
             progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Dataset Loaded!"
             set_progress(NotificationProvider.notify(progress_message, action='update', notification_id='c0'))
         elif current == 1:
-            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Validation;Validating Data!"
-            set_progress(NotificationProvider.notify(progress_message, action="show"))
             dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
             dataset_name = session_store[AppIDAuthProvider.DATASET_NAME]
             dataset_type_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
@@ -455,6 +501,8 @@ def update(set_progress, back, next_, current, session_store,
             saved_data_path, errors = "", []
 
             if dataset_type_name == 'SURVEY_DATA':
+                progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Validation;Validating Data!"
+                set_progress(NotificationProvider.notify(progress_message, action="show"))
                 data_path = session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED]
 
                 element_ids = ['lat-long', 'latitude', 'longitude', 'easting-northing', 'easting', 'northing', 'zone',
@@ -495,6 +543,7 @@ def update(set_progress, back, next_, current, session_store,
                 element_values = Utils.Utils.get_element_states(ctx.args_grouping, element_ids)
 
                 saved_data_path, errors = save_and_validate_observatory_data(
+                    set_progress,
                     session_store,
                     dataset_name=session_store[AppIDAuthProvider.DATASET_NAME],
                     dataset_type_name=dataset_type_name,
@@ -506,8 +555,9 @@ def update(set_progress, back, next_, current, session_store,
                     datetime_xyz=element_values['datetime-xyz']
                 )
 
-            progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading;Generating survey region plot!"
-            set_progress(NotificationProvider.notify(progress_message, action='update'))
+            if dataset_type_name == 'SURVEY_DATA':
+                progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading;Generating survey region plot!"
+                set_progress(NotificationProvider.notify(progress_message, action='update'))
 
             review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name,
                                                                           session_store)
@@ -518,8 +568,10 @@ def update(set_progress, back, next_, current, session_store,
                                                      dataset_type=InMermoryDataService.DatasetsService \
                                                      .get_dataset_type_by_name(dataset_type_name),
                                                      projects=[]))
-            final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"
-            set_progress(NotificationProvider.notify(final_progress_message, action='update'))
+
+            if dataset_type_name == 'SURVEY_DATA':
+                final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"
+                set_progress(NotificationProvider.notify(final_progress_message, action='update'))
 
         else:
             data_content = no_update

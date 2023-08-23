@@ -129,6 +129,12 @@ class DatasetsService:
         return df
 
     @classmethod
+    @cache.memoize(timeout=50000)
+    def get_dataset_by_path(cls, path):
+        df = pd.read_csv(path)
+        return df
+
+    @classmethod
     def get_dataset_type_by_id(cls, dataset_id):
         print([d.id.__str__() for d in cls.dataset_types])
         dataset_type = [d for d in cls.dataset_types if d.id.__str__() == dataset_id][0]
