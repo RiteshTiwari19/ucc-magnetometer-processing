@@ -3,6 +3,8 @@ from base64 import b64encode
 import dash_mantine_components as dmc
 from dash import dcc
 from dash import callback, Input, Output, State, no_update, Patch, callback_context
+
+from api.DatasetTypeService import DatasetTypeService
 from auth import AppIDAuthProvider
 from components import DataTableNative, MapboxScatterPlot
 from dataservices import InMermoryDataService
@@ -51,12 +53,14 @@ def get_data_specific_content(summary_df):
 
 
 def get_data_specific_plot(df, selected_dataset, session_store, render_option='plot'):
-    if InMermoryDataService.DatasetsService.get_dataset_type_by_id(selected_dataset) == 'SURVEY_DATA':
+    dataset_type = DatasetTypeService.get_dataset_type_by_id(dataset_type_id=selected_dataset, session=session_store)
 
-        fig = MapboxScatterPlot.get_mapbox_plot_uncached(df=df,
-                                                         df_name=selected_dataset,
-                                                         col_to_plot='Magnetic_Field',
-                                                         sampling_frequency=100)
+    if dataset_type.name == 'SURVEY_DATA':
+
+        fig = MapboxScatterPlot.get_mapbox_plot(df=df,
+                                                df_name=selected_dataset,
+                                                col_to_plot='Magnetic_Field',
+                                                sampling_frequency=100)
 
         fig.update_coloraxes(showscale=False)
         if render_option == 'image':
@@ -74,7 +78,7 @@ def get_data_specific_plot(df, selected_dataset, session_store, render_option='p
                              style={"fontSize": 20})),
                 dcc.Graph(id='data-upload-summary-region-plot', figure=fig, style={'width': '100%'})
             ])
-    elif InMermoryDataService.DatasetsService.get_dataset_type_by_id(selected_dataset) == 'OBSERVATORY_DATA':
+    elif dataset_type.name == 'OBSERVATORY_DATA':
 
         ret_val = dmc.Stack(
             children=[

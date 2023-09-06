@@ -11,6 +11,7 @@ from dash_iconify import DashIconify
 from flask import session
 
 from api import ResidualService
+from api.ProjectsService import ProjectService
 from auth import AppIDAuthProvider
 from components import ModalComponent, MapboxScatterPlot, MagDataComponent
 from dataservices import InMermoryDataService
@@ -141,8 +142,8 @@ from dataservices import InMermoryDataService
     # return mag_data_page
 #
 def get_interpolation_page(session):
-    active_project = InMermoryDataService.WorkspaceService\
-        .get_project_by_name(session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
+    active_project = ProjectService.get_project_by_id(session=session,
+                                                      project_id=session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
     interpoation_page = html.Div([
         html.Div(MagDataComponent.get_page_tags(active_project), id='mag-data-tags-div',
                  style={

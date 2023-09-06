@@ -11,6 +11,8 @@ from FlaskCache import cache
 from flask import Flask, redirect, request, session
 from jwt.exceptions import ExpiredSignatureError
 
+from api import UserService
+
 
 class AppIDAuthProvider:
     # App ID
@@ -29,6 +31,7 @@ class AppIDAuthProvider:
     APPID_ID_TOKEN = "APPID_ID_TOKEN"
     APPID_USER_ROLES = "APPID_USER_ROLES"
     APPID_USER_EMAIL = "APPID_USER_EMAIL"
+    APPID_USER_BACKEND_ID = "APPID_USER_BACKEND_ID"
     AUTH_ERRMSG = "AUTH_ERRMSG"
     ENDPOINT_CONTEXT = "ENDPOINT_CONTEXT"
     SESSION_EXPIRED = "SESSION_EXPIRED"
@@ -61,7 +64,7 @@ class AppIDAuthProvider:
         @self.flask.route("/startauth")
         def start_auth_route():
             session[AppIDAuthProvider.ENDPOINT_CONTEXT] = request.path if request.path != '/startauth' else dash_url
-            print(session[AppIDAuthProvider.ENDPOINT_CONTEXT])
+            # print(session[AppIDAuthProvider.ENDPOINT_CONTEXT])
             return AppIDAuthProvider.start_auth()
 
         @self.flask.route("/afterauth", methods=["POST"])
@@ -83,7 +86,7 @@ class AppIDAuthProvider:
                                            "grant_type": "authorization_code",
                                            "redirect_uri": AppIDAuthProvider.REDIRECT_URI,
                                            "code": code,
-                                           "scope": "email openid profile offline_access https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.Read",
+                                           "scope": "api://ucc-mag-app-api/Middleware",
                                            "code_verifier": cvf})
                 resp_json = resp.json()
                 if "error_description" in resp_json:
@@ -91,8 +94,19 @@ class AppIDAuthProvider:
                 elif "id_token" in resp_json and "access_token" in resp_json:
                     access_token = resp_json["access_token"]
                     id_token = resp_json["id_token"]
+                    print(f'id_token: {id_token}')
                     user_email, user_id, roles, user_name = AppIDAuthProvider._get_user_info(resp_json["id_token"])
+
+                    internal_user_id = UserService.UserService.get_user_by_id(
+                        session={
+                            'APPID_USER_TOKEN': access_token,
+                            'APPID_USER_EMAIL': user_email
+                        })
+
+                    session[AppIDAuthProvider.APPID_USER_BACKEND_ID] = internal_user_id.id
+
                     if roles is not None:
+                        print(access_token)
                         session[AppIDAuthProvider.APPID_USER_TOKEN] = access_token
                         session[AppIDAuthProvider.APPID_ID_TOKEN] = id_token
                         session[AppIDAuthProvider.APPID_USER_ROLES] = roles
@@ -114,10 +128,9 @@ class AppIDAuthProvider:
             endpoint_context = session.pop(AppIDAuthProvider.ENDPOINT_CONTEXT, None)
             return redirect(endpoint_context)
 
-
     @classmethod
     def get_cache(cls):
-        return  cls.cache
+        return cls.cache
 
     @classmethod
     def check(cls, func):
@@ -244,7 +257,7 @@ class AppIDAuthProvider:
         authorization_endpoint = cls.OAUTH_SERVER_URL + "/authorize"
 
         auth_url = f"{authorization_endpoint}?client_id={cls.CLIENT_ID}&response_type=code%20id_token&redirect_uri={cls.REDIRECT_URI}&nonce={nonce}" + \
-                   "&scope=email%20openid%20profile%20offline_access%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Read%20https%3A%2F%2Fgraph.microsoft.com%2FUser.Read" + \
+                   "&scope=email%20openid%20profile%20offline_access%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Read%20https%3A%2F%2Fgraph.microsoft.com%2FUser.Read%20api%3A%2F%2Fucc-mag-app-api%2FMiddleware" + \
                    "&response_mode=form_post" + \
                    f"&code_challenge={code_challenge}&code_challenge_method=S256"
 

@@ -1,14 +1,16 @@
 import dash
 import dash_bootstrap_components as dbc
-from dash import html, dcc, State, html, Input, Output, Patch, ALL
-from dataservices import InMermoryDataService
-import datetime
+from dash import State, html, Input, Output, Patch, ALL, callback, clientside_callback, MATCH
 from flask import session
-from components import Pagination, MagDataComponent, InterpolationComponent
 import dash_mantine_components as dmc
 
-
-# import MagDataComponent
+from FlaskCache import cache
+from api.ProjectsService import ProjectService
+from api.UserService import UserService
+from api.dto import CreateProjectDTO
+from auth import AppIDAuthProvider
+from components import Pagination, MagDataComponent, InterpolationComponent
+from dataservices import InMermoryDataService
 
 
 def get_workspaces_html(total_projects=2):
@@ -113,8 +115,8 @@ def get_existing_workspaces(workspaces=None):
         ], className="card-body"),
 
         dbc.CardFooter(
-            dbc.Button('Create', id={'type': 'button', 'action': 'wrk-create', 'subset': 'projects', 'idx': -1},
-                       className='btn btn-block', value='some-cal',
+            dmc.Button('Create', id={'type': 'button', 'action': 'wrk-create', 'subset': 'projects', 'idx': -1},
+                       className='zoom', variant='filled', fullWidth=True,
                        style={'background': '#00bfa5'}),
             style={'position': 'absolute',
                    'bottom': 0,
@@ -136,13 +138,15 @@ def get_existing_workspaces(workspaces=None):
 
             dbc.CardFooter([
                 html.Div([
-                    html.Div(dbc.Button('Select', className='btn btn-lg zoom', value=workspace['name'],
+                    html.Div(dmc.Button('Select', className='zoom', size='lg',
+                                        variant='filled',
                                         id={'type': 'button', 'subset': 'projects', 'action': 'wrk-select',
-                                            'idx': workspace['name']},
+                                            'idx': workspace['id']},
                                         style={'background': '#00bfa5', 'margin': '10px', 'width': '100%'})),
-                    html.Div(dbc.Button('Delete', className='btn btn-lg btn-danger zoom', value=workspace['name'],
+                    html.Div(dmc.Button('Delete', className='zoom', size='lg',
+                                        variant='filled', color='red',
                                         id={'type': 'button', 'action': 'wrk-delete', 'subset': 'projects',
-                                            'idx': workspace['name']},
+                                            'idx': workspace['id']},
                                         style={'margin': '10px', 'width': '100%'}))
                 ], style={
                     'display': 'flex',
@@ -167,68 +171,127 @@ def switch_workspace_tab_outer(app: dash.Dash, du):
         Output("workspace-pagination-footer", "children"),
         Output("pagination-bar", "active_page"),
         Input("tabs", "active_tab"),
-        Input("pagination-bar", "active_page")
+        Input("pagination-bar", "active_page"),
+        State("local", "data")
     )
-    def switch_workspace_tab(at, active_page):
+    def switch_workspace_tab(at, active_page, session_store):
         visibility_patch = Patch()
+        displayed_workspace = UserService.get_user_projects(
+            user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
+            session=session_store)
+
+        total_workspaces = len(displayed_workspace)
+
         if at == "projects":
 
-            if len(InMermoryDataService.WorkspaceService.workspaces) % 5 == 0 and active_page * 5 > len(
-                    InMermoryDataService.WorkspaceService.workspaces):
+            if total_workspaces % 5 == 0 and active_page * 5 > total_workspaces:
                 active_page = active_page - 1
 
             if active_page <= 1:
                 active_page = 1
 
-            total_workspaces = len(InMermoryDataService.WorkspaceService.workspaces)
             visibility_patch['visibility'] = 'visible'
             start_workspace = ((active_page * 5) - 5)
             end_workspace = start_workspace + 5
             if end_workspace > total_workspaces:
                 end_workspace = total_workspaces
 
-            displayed_workspace = InMermoryDataService.WorkspaceService.workspaces[start_workspace:end_workspace]
+            displayed_workspace = displayed_workspace[start_workspace:end_workspace]
 
             return get_existing_workspaces(displayed_workspace), visibility_patch, \
                 Pagination.get_pagination(
-                    total_projects=len(InMermoryDataService.WorkspaceService.workspaces)), active_page
+                    total_projects=total_workspaces), active_page
 
         elif at == "mag_data":
             visibility_patch['visibility'] = 'hidden'
             return MagDataComponent.get_mag_data_page(session, du), visibility_patch, Pagination.get_pagination(
-                total_projects=len(InMermoryDataService.WorkspaceService.workspaces)), 1
+                total_projects=total_workspaces), 1
         elif at == "mag_data_interpolation":
             visibility_patch['visibility'] = 'hidden'
             return InterpolationComponent.get_interpolation_page(session), visibility_patch, Pagination.get_pagination(
-                total_projects=len(InMermoryDataService.WorkspaceService.workspaces)), 1
+                total_projects=total_workspaces), 1
         else:
             visibility_patch['visibility'] = 'hidden'
             return html.P(""), visibility_patch, Pagination.get_pagination(
-                total_projects=len(InMermoryDataService.WorkspaceService.workspaces)), 1
+                total_projects=total_workspaces), 1
 
 
-def workspace_button_handler(app: dash.Dash):
-    @app.callback(
-        Output("tabs", "active_tab", allow_duplicate=True),
-        Input({'type': 'button', 'subset': 'projects', 'idx': ALL, 'action': ALL}, 'n_clicks'),
-        State({'type': 'input', 'form': 'new_proj', 'id': ALL}, 'value'),
-        State("tabs", "active_tab"),
-        prevent_initial_call=True,
-    )
-    def workspace_button_handler(clicks, form_value, active_tab_current_state):
-        ct = dash.callback_context
-        button_id = ct.triggered_id
+@callback(
+    Output("tabs", "active_tab", allow_duplicate=True),
+    Output({'type': 'button', 'subset': 'projects', 'idx': ALL, 'action': ALL}, "loading", allow_duplicate=True),
+    Input({'type': 'button', 'subset': 'projects', 'idx': ALL, 'action': ALL}, 'n_clicks'),
+    State({'type': 'input', 'form': 'new_proj', 'id': ALL}, 'value'),
+    State("tabs", "active_tab"),
+    State("local", "data"),
+    prevent_initial_call=True)
+def workspace_button_handler(clicks, form_value, active_tab_current_state, session_store):
+    ct = dash.callback_context
+    button_id = ct.triggered_id
 
-        if button_id is None:
-            return active_tab_current_state
+    if button_id is None:
+        return active_tab_current_state, [False] * len(clicks)
 
-        if button_id['action'] == 'wrk-create':
-            if form_value[0] is not None:
-                InMermoryDataService.WorkspaceService.add_project({'name': form_value[0]})
-                return "projects"
-        elif button_id['action'] == 'wrk-delete':
-            InMermoryDataService.WorkspaceService.delete_project(button_id['idx'])
-        elif button_id['action'] == 'wrk-select':
-            session['current_active_project'] = button_id['idx']
-            return "mag_data"
-        return "projects"
+    if button_id['action'] == 'wrk-create':
+        if form_value[0] is not None:
+            project_to_create = get_new_project(project_name=form_value[0], session_store=session_store)
+            ProjectService.create_new_project(project=project_to_create, session=session_store)
+            cache.delete_memoized(UserService.get_projects)
+            return "projects", [False] * len(clicks)
+    elif button_id['action'] == 'wrk-delete':
+        ProjectService.delete_project(session=session_store, project_id=button_id['idx'])
+        cache.delete_memoized(UserService.get_projects)
+    elif button_id['action'] == 'wrk-select':
+        session['current_active_project'] = button_id['idx']
+        return "mag_data", [False] * len(clicks)
+    return "projects", [False] * len(clicks)
+
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        return true
+    }
+    """,
+    Output({'type': 'button', 'action': 'wrk-create', 'subset': 'projects', 'idx': -1}, "loading",
+           allow_duplicate=True),
+    Input({'type': 'button', 'action': 'wrk-create', 'subset': 'projects', 'idx': -1}, "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        return true
+    }
+    """,
+    Output({'type': 'button', 'action': 'wrk-delete', 'subset': 'projects', 'idx': MATCH}, "loading",
+           allow_duplicate=True),
+    Input({'type': 'button', 'action': 'wrk-delete', 'subset': 'projects', 'idx': MATCH}, "n_clicks"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        return true
+    }
+    """,
+    Output({'type': 'button', 'action': 'wrk-select', 'subset': 'projects', 'idx': MATCH}, "loading",
+           allow_duplicate=True),
+    Input({'type': 'button', 'action': 'wrk-select', 'subset': 'projects', 'idx': MATCH}, "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+def get_new_project(project_name, session_store):
+    project: CreateProjectDTO = CreateProjectDTO()
+    project.name = project_name
+    project.tags = {}
+
+    user_role: CreateProjectDTO.UserRoleInnerDTO = CreateProjectDTO.UserRoleInnerDTO()
+    user_role.role = session_store[AppIDAuthProvider.APPID_USER_ROLES][0]
+    user_role.user_id = session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]
+
+    project.user_role = [user_role]
+
+    return project

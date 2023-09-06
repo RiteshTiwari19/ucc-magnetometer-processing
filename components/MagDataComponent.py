@@ -9,7 +9,10 @@ from dash import dcc, html, Input, Output, State, Patch, no_update, ALL, callbac
 from dash_iconify import DashIconify
 from flask import session
 
+from FlaskCache import cache
 from api import ResidualService
+from api.ProjectsService import ProjectService
+from api.dto import UpdateProjectTagsDTO
 from auth import AppIDAuthProvider
 from components import ModalComponent, MapboxScatterPlot
 from dataservices import InMermoryDataService
@@ -24,13 +27,14 @@ def get_page_tags(active_project):
         ],
         style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant='subtle', color='gray'
     )
-    ]) for key, value in active_project.items()]
+    ]) for key, value in active_project.tags.items()]
 
     return tag_buttons
 
 
 def get_mag_data_page(session, configured_du):
-    active_project = InMermoryDataService.WorkspaceService.get_project_by_name(session['current_active_project'])
+    active_project = ProjectService.get_project_by_id(project_id=session['current_active_project'],
+                                                      session=session)
     active_session = session[AppIDAuthProvider.APPID_USER_NAME]
     datasets = InMermoryDataService.DatasetsService.get_existing_datasets()
     drop_down_options = [{'label': dataset.name, 'value': dataset.name} for dataset in datasets]
@@ -267,27 +271,27 @@ def get_mag_data_page(session, configured_du):
     Output('select-dataset-div', 'className', allow_duplicate=True),
     Input('dropdown-dataset', 'value'),
     State('mag-data-tags-div', 'children'),
+    State('local', 'data'),
     prevent_initial_call=True
 )
-def update_tags(selected_dataset, current_tags):
+def update_tags(selected_dataset, current_tags, session_store):
     if selected_dataset is not None:
 
-        active_project = InMermoryDataService.WorkspaceService.get_project_by_name(
-            session['current_active_project'])
+        active_project = ProjectService.get_project_by_id(project_id=session['current_active_project'],
+                                                          session=session_store)
 
-        InMermoryDataService.WorkspaceService \
-            .set_tag_on_project(session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT], "Dataset",
-                                value=selected_dataset)
+
+        active_project.tags['Survey'] = selected_dataset
 
         tag_buttons = []
         idx = 0
-        for key, value in active_project.items():
-            btn_id = f'disabled-tag-btn-{idx}' if key != 'Dataset' else {'type': 'button',
+        for key, value in active_project.tags.items():
+            btn_id = f'disabled-tag-btn-{idx}' if key != 'Survey' else {'type': 'button',
                                                                          'subset': 'residual-dataset-page',
                                                                          'idx': 'select-dataset',
                                                                          'action': 'select-dataset'}
-            btn_variant = 'subtle' if key != 'Dataset' else 'outline'
-            btn_color = 'gray' if key != 'Dataset' else 'orange'
+            btn_variant = 'subtle' if key != 'Survey' else 'outline'
+            btn_color = 'gray' if key != 'Survey' else 'orange'
 
             btn_to_add = dmc.Group([dmc.Button(
                 [

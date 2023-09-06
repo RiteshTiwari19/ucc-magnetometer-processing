@@ -18,8 +18,10 @@ from auth import AppIDAuthProvider
 from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPageComponent, NotificationProvider
 from dataservices import InMermoryDataService
 from utils import Utils
-from FlaskCache import background_callback_manager, celery_app
+from Celery import background_callback_manager
+from Celery import celery_app
 from utils import Consts
+from api.DatasetTypeService import DatasetTypeService
 
 from dask.distributed import Client, LocalCluster
 import dask.dataframe as ddf
@@ -41,18 +43,21 @@ datasets_tabs = html.Div(
             id="tabs",
             active_tab="existing_datasets",
         ),
-        html.Div(id="content", style={'width': '100%'},
-                 children=dmc.Stack(
-                     spacing="xs",
-                     children=[
-                         dmc.Skeleton(radius=8, circle=True),
-                         dmc.Skeleton(height=40, width="100%", visible=True),
-                         dmc.Skeleton(height=40, width="100%", visible=True),
-                         dmc.Skeleton(height=40, width="100%", visible=True),
-                         dmc.Skeleton(height=40, width="100%", visible=True),
-                     ],
-                 )
-                 ),
+        html.Div(
+            id="content", style={'width': '100%'},
+            children=
+            dmc.LoadingOverlay(children=[
+                dmc.Stack(
+                    spacing="xs",
+                    children=[
+                        dmc.Skeleton(radius=8, circle=True),
+                        dmc.Skeleton(height=40, width="100%", visible=True),
+                        dmc.Skeleton(height=40, width="100%", visible=True),
+                        dmc.Skeleton(height=40, width="100%", visible=True),
+                        dmc.Skeleton(height=40, width="100%", visible=True),
+                    ],
+                )])
+        )
     ],
     style={
         'textAlign': 'center',
@@ -65,7 +70,6 @@ datasets_tabs = html.Div(
 
 def get_upload_file_tab_content(configured_du, upload_id):
     content = html.Div([
-        # dmc.Affix(id='notify-container-placeholder-div', position={"bottom": 30, "right": 30}),
         get_stepper(configured_du, upload_id),
     ],
         style={
@@ -83,7 +87,7 @@ def get_upload_file_tab_content(configured_du, upload_id):
 
 
 def get_stepper(configured_du, upload_id):
-    data_types = InMermoryDataService.DatasetsService.get_dataset_types()
+    data_types = DatasetTypeService.get_dataset_types(session=session)
     data_types = [{'label': data_type.name, 'value': data_type.id} for data_type in data_types]
 
     stepper = html.Div(
@@ -96,7 +100,7 @@ def get_stepper(configured_du, upload_id):
                     dmc.StepperStep(
                         label="Dataset",
                         description="Upload a dataset",
-                        children=[
+                        children=[dbc.Spinner(children=[
                             html.Br(),
                             dmc.TextInput(
                                 id='upload-dataset-name',
@@ -123,6 +127,7 @@ def get_stepper(configured_du, upload_id):
                             html.Div(DashUploader.get_upload_component(configured_du, upload_id=upload_id),
                                      className='hide-div', id='dash_uploader-div')
                         ],
+                        )],
                     ),
                     dmc.StepperStep(
                         label="Select Columns",
@@ -313,6 +318,7 @@ def save_and_validate_survey_data(set_progress, session_store,
             df = pd.read_csv(data_path)[col_map_keys]
             df = df.rename(columns=col_map)
 
+            time.sleep(1.5)
             progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Performing Type Conversion!"
             set_progress(NotificationProvider.notify(progress_message,
                                                      action='update'))
@@ -405,7 +411,8 @@ def save_and_validate_observatory_data(set_progress,
             df = df.rename(columns=col_map)
             time.sleep(1)
             progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Parsing Date!"
-            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            set_progress(
+                NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
             time.sleep(1)
 
             df = df.assign(Datetime=ddf.to_datetime(df['Datetime'], format='%d/%m/%Y %H:%M:%S'))
@@ -415,9 +422,10 @@ def save_and_validate_observatory_data(set_progress,
             if 'Magnetic_Field' not in df.columns:
                 time.sleep(1)
                 progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Processing;Computing Total Field!"
-                set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+                set_progress(
+                    NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
                 time.sleep(1)
-                df = df.assign(Magnetic_Field=da.sqrt(df['bx']**2 + df['by']**2 + df['bz']**2))
+                df = df.assign(Magnetic_Field=da.sqrt(df['bx'] ** 2 + df['by'] ** 2 + df['bz'] ** 2))
                 df = df.assign(Magnetic_Field_Smoothed=df['Magnetic_Field']
                                .rolling(window=100, win_type='boxcar', center=True, min_periods=1).mean())
                 df = df.assign(Baseline=df['Magnetic_Field_Smoothed'] - df['Magnetic_Field_Smoothed'].mean())
@@ -432,7 +440,8 @@ def save_and_validate_observatory_data(set_progress,
                 os.mkdir(save_path)
 
             progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Saving;Saving Observatory Data!"
-            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            set_progress(
+                NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
             df.to_csv(f'{save_path}\\{dataset_name}.csv', single_file=True, compute=True)
             os.remove(data_path)
             client.close()
@@ -440,7 +449,8 @@ def save_and_validate_observatory_data(set_progress,
 
             time.sleep(0.5)
             progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Saved Observatory Data!"
-            set_progress(NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            set_progress(
+                NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
             time.sleep(0.5)
 
             return f'{save_path}\\{dataset_name}.csv', None
@@ -490,17 +500,20 @@ def update(set_progress, back, next_, current, session_store,
             data_content = get_upload_data_content(session_store,
                                                    session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED])
 
-            time.sleep(1)
+            time.sleep(3)
             progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Dataset Loaded!"
             set_progress(NotificationProvider.notify(progress_message, action='update', notification_id='c0'))
         elif current == 1:
             dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
             dataset_name = session_store[AppIDAuthProvider.DATASET_NAME]
-            dataset_type_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
+            # dataset_type_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
+            dataset_type_name = DatasetTypeService.get_dataset_type_by_id(session=session_store,
+                                                                          dataset_type_id=dataset_id)
 
             saved_data_path, errors = "", []
 
-            if dataset_type_name == 'SURVEY_DATA':
+            if dataset_type_name.name == 'SURVEY_DATA':
+                time.sleep(2)
                 progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Validation;Validating Data!"
                 set_progress(NotificationProvider.notify(progress_message, action="show"))
                 data_path = session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED]
@@ -513,7 +526,7 @@ def update(set_progress, back, next_, current, session_store,
                 saved_data_path, errors = save_and_validate_survey_data(
                     set_progress,
                     session_store,
-                    dataset_type_name=dataset_type_name,
+                    dataset_type_name=dataset_type_name.name,
                     data_path=data_path,
                     dataset_name=dataset_name,
                     lat_long_switch=element_values['lat-long'],
@@ -532,7 +545,7 @@ def update(set_progress, back, next_, current, session_store,
                     datetime=element_values['datetime']
                 )
 
-            elif dataset_type_name == 'OBSERVATORY_DATA':
+            elif dataset_type_name.name == 'OBSERVATORY_DATA':
                 if session_store[AppIDAuthProvider.LAST_DATASET_UPLOADED].split('.')[-1] == 'zip':
                     data_path = os.getcwd() + f"\\data\\{session_store[AppIDAuthProvider.APPID_USER_NAME]}\\uploaded_zip.csv"
                 else:
@@ -546,7 +559,7 @@ def update(set_progress, back, next_, current, session_store,
                     set_progress,
                     session_store,
                     dataset_name=session_store[AppIDAuthProvider.DATASET_NAME],
-                    dataset_type_name=dataset_type_name,
+                    dataset_type_name=dataset_type_name.name,
                     data_path=data_path,
                     observatory_data_switch=element_values['mag_directional'],
                     total_field=element_values['magentic_field_obs'],
@@ -555,21 +568,20 @@ def update(set_progress, back, next_, current, session_store,
                     datetime_xyz=element_values['datetime-xyz']
                 )
 
-            if dataset_type_name == 'SURVEY_DATA':
+            if dataset_type_name.name == 'SURVEY_DATA':
                 progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading;Generating survey region plot!"
                 set_progress(NotificationProvider.notify(progress_message, action='update'))
 
-            review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name,
+            review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name.name,
                                                                           session_store)
             InMermoryDataService.DatasetsService.datasets \
                 .append(InMermoryDataService.Dataset(name=dataset_name,
-                                                     # path=f'{save_path}\\{dataset_name}.csv',
                                                      path=saved_data_path,
                                                      dataset_type=InMermoryDataService.DatasetsService \
-                                                     .get_dataset_type_by_name(dataset_type_name),
+                                                     .get_dataset_type_by_name(dataset_type_name.name),
                                                      projects=[]))
 
-            if dataset_type_name == 'SURVEY_DATA':
+            if dataset_type_name.name == 'SURVEY_DATA':
                 final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"
                 set_progress(NotificationProvider.notify(final_progress_message, action='update'))
 
@@ -963,12 +975,10 @@ def get_observatory_data_form(df):
 
 
 def get_data_cols(session_store, df):
-    print('I AM GETTING CALLED BUOIY')
-    print(session_store)
     dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
 
-    dataset_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
     ret_val = None
+    dataset_name = DatasetTypeService.get_dataset_type_by_id(session=session_store, dataset_type_id=dataset_id).name
     if dataset_name == 'SURVEY_DATA':
         ret_val = get_survey_data_form(df)
     elif dataset_name == 'OBSERVATORY_DATA':

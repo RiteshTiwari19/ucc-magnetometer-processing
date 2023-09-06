@@ -75,6 +75,9 @@ def render_page_content(pathname):
     patch = Patch()
     patch[AppIDAuthProvider.APPID_USER_NAME] = session[AppIDAuthProvider.APPID_USER_NAME]
     patch[AppIDAuthProvider.APPID_USER_EMAIL] = session[AppIDAuthProvider.APPID_USER_EMAIL]
+    patch[AppIDAuthProvider.APPID_USER_TOKEN] = session[AppIDAuthProvider.APPID_USER_TOKEN]
+    patch[AppIDAuthProvider.APPID_USER_BACKEND_ID] = session[AppIDAuthProvider.APPID_USER_BACKEND_ID]
+    patch[AppIDAuthProvider.APPID_USER_ROLES] = session[AppIDAuthProvider.APPID_USER_ROLES]
     if pathname == "/dashboard/":
         return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces)), patch
     elif pathname == "/dashboard/datasets":
@@ -111,8 +114,6 @@ Sidebar.sidebar_user(app)
 FileUploadTabs.switch_dataset_tab(app, du)
 
 Workspaces.switch_workspace_tab_outer(app, du)
-
-Workspaces.workspace_button_handler(app)
 
 ModalComponent.toggle_upload_dataset_modal(app)
 
