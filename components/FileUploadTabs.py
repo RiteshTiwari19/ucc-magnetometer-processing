@@ -1,71 +1,89 @@
-import glob
+import os
 import os
 import shutil
+import threading
 import time
 from zipfile import ZipFile
 
 import dash
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
-import numpy as np
+import dask.array as da
+import dask.dataframe as ddf
 import pandas as pd
-from dash import html, Output, Input, callback, no_update, State, ctx, clientside_callback, Patch, ALL
-from dash.exceptions import PreventUpdate
+from dash import html, Output, Input, callback, no_update, State, ctx, clientside_callback, Patch, ALL, MATCH
 from dash_iconify import DashIconify
+from dask.distributed import Client, LocalCluster
 from flask import session
 
-from auth import AppIDAuthProvider
-from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPageComponent, NotificationProvider
-from dataservices import InMermoryDataService
-from utils import Utils
 from Celery import background_callback_manager
-from Celery import celery_app
-from utils import Consts
+from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
-
-from dask.distributed import Client, LocalCluster
-import dask.dataframe as ddf
-import dask.array as da
+from api.dto import CreateNewDatasetDTO, CreateDatasetDTO
+from auth import AppIDAuthProvider
+from components import DashUploader, DataTableNative, Toast, DataUploadSummaryPageComponent, NotificationProvider, \
+    DatasetsComponent
+from dataservices import InMermoryDataService
+from utils import Consts
+from utils import Utils
+from utils.AzureContainerHelper import BlobConnector
 
 min_step = 0
 max_step = 3
 active = 0
 
-datasets_tabs = html.Div(
-    [
-        dbc.Tabs(
-            [
-                dbc.Tab(label="Existing Datasets", tab_id="existing_datasets", activeTabClassName="fw-bold",
-                        activeLabelClassName="text-success"),
-                dbc.Tab(label="Upload", tab_id="file_upload", activeTabClassName="fw-bold",
-                        activeLabelClassName="text-success"),
-            ],
-            id="tabs",
-            active_tab="existing_datasets",
-        ),
-        html.Div(
-            id="content", style={'width': '100%'},
-            children=
-            dmc.LoadingOverlay(children=[
-                dmc.Stack(
-                    spacing="xs",
-                    children=[
-                        dmc.Skeleton(radius=8, circle=True),
-                        dmc.Skeleton(height=40, width="100%", visible=True),
-                        dmc.Skeleton(height=40, width="100%", visible=True),
-                        dmc.Skeleton(height=40, width="100%", visible=True),
-                        dmc.Skeleton(height=40, width="100%", visible=True),
-                    ],
-                )])
-        )
-    ],
-    style={
-        'textAlign': 'center',
-        'width': '100%',
-        'padding': '10px',
-        'display': 'inline-block'
-    }
-)
+
+def get_datasets_skeleton():
+    lors = [
+
+               dmc.Paper(dmc.LoadingOverlay(
+                   children=[
+                       dmc.Stack(
+                           spacing="xs",
+                           children=[
+                               dmc.Skeleton(radius=10, circle=True),
+                               dmc.Skeleton(height=10, width="100%", visible=True),
+                               dmc.Skeleton(height=10, width="100%", visible=True),
+                               dmc.Skeleton(height=10, width="100%", visible=True),
+                               dmc.Skeleton(height=10, width="40%", visible=True),
+                           ],
+                       )],
+                   loaderProps={"variant": "dots", "color": "orange", "size": "xl"}
+               ), radius='md', shadow='lg', p='md')] * 5
+
+    return dmc.Stack(children=lors, align='stretch', mt='md')
+
+
+datasets_tabs = \
+    dmc.LoadingOverlay(html.Div(
+        [
+            dbc.Tabs(
+                [
+                    dbc.Tab(children=get_datasets_skeleton(), label="Existing Datasets", tab_id="existing_datasets",
+                            activeTabClassName="fw-bold",
+                            activeLabelClassName="text-success",
+                            id={'type': 'tab', 'subset': 'dataset', 'idx': 'existing_datasets'}
+                            ),
+                    dbc.Tab(label="Upload", tab_id="file_upload", activeTabClassName="fw-bold",
+                            activeLabelClassName="text-success",
+                            id={'type': 'tab', 'subset': 'dataset', 'idx': 'file_upload'}
+                            ),
+                ],
+                id="dataset_tabs",
+                active_tab="existing_datasets",
+            ),
+            html.Div(
+                id="content", style={'width': '100%'})
+        ],
+        style={
+            'textAlign': 'center',
+            'width': '100%',
+            'padding': '10px',
+            'display': 'inline-block'
+        }
+    ),
+        loaderProps={"variant": "dots", "color": "orange", "size": "xl"}
+    )
 
 
 def get_upload_file_tab_content(configured_du, upload_id):
@@ -349,6 +367,14 @@ def save_and_validate_survey_data(set_progress, session_store,
                 os.mkdir(save_path)
             df.to_csv(f'{save_path}\\{dataset_name}.csv')
 
+            uploader_thread = threading.Thread(
+                target=BlobConnector.upload_blob, kwargs={
+                    'blob_name': f'{dataset_name}.csv',
+                    'user_id': f'{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}',
+                    'local_file_path': f'{save_path}\\{dataset_name}.csv'
+                })
+            uploader_thread.start()
+
             return f'{save_path}\\{dataset_name}.csv', None
         else:
             return None, err_message
@@ -452,6 +478,14 @@ def save_and_validate_observatory_data(set_progress,
             set_progress(
                 NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
             time.sleep(0.5)
+
+            uploader_thread = threading.Thread(
+                target=BlobConnector.upload_blob, kwargs={
+                    'blob_name': f'{dataset_name}.csv',
+                    'user_id': f'{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}',
+                    'local_file_path': f'{save_path}\\{dataset_name}.csv'
+                })
+            uploader_thread.start()
 
             return f'{save_path}\\{dataset_name}.csv', None
         else:
@@ -574,12 +608,24 @@ def update(set_progress, back, next_, current, session_store,
 
             review_and_finalize_content = get_review_and_finalize_content(saved_data_path, dataset_type_name.name,
                                                                           session_store)
-            InMermoryDataService.DatasetsService.datasets \
-                .append(InMermoryDataService.Dataset(name=dataset_name,
-                                                     path=saved_data_path,
-                                                     dataset_type=InMermoryDataService.DatasetsService \
-                                                     .get_dataset_type_by_name(dataset_type_name.name),
-                                                     projects=[]))
+
+            new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO()
+            dataset_inner: CreateDatasetDTO = CreateDatasetDTO()
+
+            dataset_inner.name = dataset_name
+            dataset_inner.dataset_type_id = dataset_id
+            dataset_inner.path = f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{dataset_name}.csv"
+
+            new_dataset.dataset = dataset_inner
+
+            DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+
+            # InMermoryDataService.DatasetsService.datasets \
+            #     .append(InMermoryDataService.Dataset(name=dataset_name,
+            #                                          path=saved_data_path,
+            #                                          dataset_type=InMermoryDataService.DatasetsService \
+            #                                          .get_dataset_type_by_name(dataset_type_name.name),
+            #                                          projects=[]))
 
             if dataset_type_name.name == 'SURVEY_DATA':
                 final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"
@@ -593,17 +639,18 @@ def update(set_progress, back, next_, current, session_store,
         return current, no_update, no_update, False, False
 
 
-def switch_dataset_tab(app: dash.Dash, du):
-    @app.callback(Output("content", "children"), [Input("tabs", "active_tab")])
-    def switch_dataset_tab(at):
+def switch_datasets_tab_outer(app: dash.Dash, du):
+    @app.callback(
+        Output({'type': 'tab', 'subset': 'dataset', 'idx': MATCH}, 'children'),
+        Input('dataset_tabs', 'active_tab'),
+        State('local', 'data'),
+    )
+    def switch_datasets_tab(at, session_store):
         if at == "file_upload":
             uploader = get_upload_file_tab_content(du, upload_id=session[AppIDAuthProvider.APPID_USER_NAME])
             return uploader
         elif at == "existing_datasets":
-            return html.Div([
-                html.P('PLACEHOLDER')
-            ])
-        return html.P("")
+            return DatasetsComponent.get_datasets(session_store=session_store)
 
 
 clientside_callback(

@@ -58,7 +58,11 @@ app.layout = dmc.MantineProvider(
     ),
     theme={"colorScheme": "dark",
            "colors":
-               {"wine-red": ["#C85252"] * 9}
+               {"wine-red": ["#C85252"] * 9,
+                "dark-green": ["#009688"]*9,
+                "dark-yellow": ["#5C6BC0"]*9,
+                "dark-gray": ["#212121"]*9
+                }
            }
 )
 
@@ -111,7 +115,8 @@ def callback_on_upload_completion(status: du.UploadStatus):
 
 Sidebar.sidebar_user(app)
 
-FileUploadTabs.switch_dataset_tab(app, du)
+# FileUploadTabs.switch_dataset_tab(app, du)
+FileUploadTabs.switch_datasets_tab_outer(app, du)
 
 Workspaces.switch_workspace_tab_outer(app, du)
 

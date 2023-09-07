@@ -80,3 +80,7 @@ label.form-label {
     bottom: 50px;
     right: 50px;
 }
+
+.stack-small-gap {
+    gap: 8px!important;
+}

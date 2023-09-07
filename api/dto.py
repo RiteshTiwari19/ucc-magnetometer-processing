@@ -44,9 +44,10 @@ class UserResponseDTO(UserResponse):
 
 
 class CreateDatasetDTO(BaseModel):
-    name: str
-    path: str
-    dataset_type_id: str
+    name: str | None
+    path: str | None
+    dataset_type_id: str | None
+    project_id: str | None
 
 
 class CreateProjectDTO(BaseModel):
@@ -65,6 +66,7 @@ class CreateProjectDTO(BaseModel):
 
 
 class ProjectDTO(BaseModel):
+    id: str | None
     name: str | None
     tags: dict | None
     created_at: datetime | None
@@ -97,10 +99,49 @@ class ProjectsOutput(BaseModel):
     class UserInProject(ProjectUserInputDAO):
         user: UserResponse
 
-    id: str
+    id: str | None
     name: str | None
     tags: dict | None
     created_at: datetime | None
     modified_at: datetime | None
     datasets: List[ProjectDatasetDTO] | None
     users: List[UserInProject] | None
+
+
+class CreateNewDatasetDTO(BaseModel):
+    dataset: CreateDatasetDTO | None
+    project_dataset_state: str | None
+
+
+class DatasetInput(BaseModel):
+    name: str | None
+    path: str | None
+    created_at: datetime | None
+    modified_at: datetime | None
+
+
+class DatasetsOutput(DatasetInput):
+    class ProjectDatasetInputDAO(BaseModel):
+        project_dataset_state: str | None = "INIT"
+
+    class DatasetProjectDTO(ProjectDatasetInputDAO):
+        project: ProjectDTO | None
+
+    id: str | None
+    projects: List[DatasetProjectDTO] | None
+
+
+class DatasetFilterDTO(BaseModel):
+    project_id: str
+    dataset_name: str
+    dataset_type_id: str
+
+
+class DatasetType(BaseModel):
+    name: str | None
+    description: str | None
+    id: str | None
+
+
+class DatasetsWithDatasetTypeDTO(DatasetsOutput):
+    dataset_type: DatasetType | None

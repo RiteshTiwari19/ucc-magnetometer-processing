@@ -33,12 +33,12 @@ class UserService:
 
     @classmethod
     def get_project_count(cls, user_id, session) -> int:
-        user_projects = cls.get_projects(session, user_id=user_id, purpose="general")
+        user_projects = cls.get_projects(session, user_id=user_id)
         return len(user_projects)
 
     @classmethod
     def get_user_projects(cls, user_id, session, purpose='general') -> List[dict]:
-        user_projects = cls.get_projects(session, user_id=user_id, purpose=purpose)
+        user_projects = cls.get_projects(session, user_id=user_id)
         ret_dct = [{'name': up.name,
                     'date_created': up.created_at,
                     'date_modified': up.modified_at,
@@ -48,8 +48,8 @@ class UserService:
         return ret_dct
 
     @classmethod
-    @cache.memoize(timeout=50000, args_to_ignore=['session', 'purpose'], forced_update=should_update_cache)
-    def get_projects(cls, session, user_id, purpose):
+    @cache.memoize(timeout=500000, args_to_ignore=['session', 'purpose'])
+    def get_projects(cls, session, user_id):
         print('get_projects is getting called now === ')
         bearer_token = session['APPID_USER_TOKEN']
         headers = {'Authorization': f"Bearer {bearer_token}"}

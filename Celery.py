@@ -15,7 +15,15 @@ celery_app.config_from_object(default_config)
 
 background_callback_manager = CeleryManager(celery_app)
 
-flask = Flask(__name__)
+flask = Flask("celery_flask_cache_app")
 cache.init_app(flask, config={
     'CACHE_TYPE': 'simple'
 })
+
+if __name__ == "__main__":
+    argv = [
+        'worker',
+        '--loglevel=INFO',
+        '-Psolo'
+    ]
+    celery_app.worker_main(argv)
