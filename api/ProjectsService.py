@@ -63,3 +63,40 @@ class ProjectService:
         project = project_response.json()
         project = parse_obj_as(ProjectsOutput, project)
         return project
+
+    @classmethod
+    @cache.memoize(timeout=500000, args_to_ignore=['session'])
+    def fetch_projects(cls, session_store, params, offset=0, limit=10) -> List[ProjectsOutput]:
+        print('fetch_projects is getting called now === ')
+        bearer_token = session_store['APPID_USER_TOKEN']
+        headers = {'Authorization': f"Bearer {bearer_token}"}
+
+        params['offset'] = offset
+        params['limit'] = limit
+
+        fetch_projects_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}"
+        projects_response = requests.get(fetch_projects_endpoint, headers=headers, params=params)
+        projects_response.raise_for_status()
+
+        projects = projects_response.json()
+        projects = parse_obj_as(List[ProjectsOutput], projects)
+
+        return projects
+
+    @classmethod
+    def link_dataset_to_project(cls, project_id, dataset_id, session_store):
+        bearer_token = session_store['APPID_USER_TOKEN']
+        headers = {'Authorization': f"Bearer {bearer_token}"}
+
+        add_dataset_to_project_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{project_id}/datasets/{dataset_id}"
+
+        datasets_response = requests.post(add_dataset_to_project_endpoint, headers=headers, params={
+            'project_dataset_state': 'INIT'
+        })
+
+        if datasets_response.status_code == 409:
+            return "NO_UPDATE"
+        else:
+            datasets_response.raise_for_status()
+            cache.delete_memoized(ProjectService.get_project_by_id)
+            return "UPDATED"

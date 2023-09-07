@@ -5,7 +5,7 @@ from pydantic.tools import parse_obj_as
 
 import AppConfig
 from FlaskCache import cache
-from api.dto import CreateProjectDTO, ProjectsOutput, UpdateProjectTagsDTO, CreateNewDatasetDTO, DatasetsOutput, \
+from api.dto import CreateNewDatasetDTO, DatasetsOutput, \
     DatasetFilterDTO, DatasetsWithDatasetTypeDTO
 
 
@@ -52,3 +52,20 @@ class DatasetService:
 
         datasets = parse_obj_as(List[DatasetsWithDatasetTypeDTO], datasets)
         return datasets
+
+    @classmethod
+    def delete_dataset(cls, dataset_id, session):
+        bearer_token = session['APPID_USER_TOKEN']
+        headers = {'Authorization': f"Bearer {bearer_token}"}
+
+        delete_dataset_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{dataset_id}"
+        delete_dataset_response = requests.delete(delete_dataset_endpoint, headers=headers)
+
+        delete_dataset_response.raise_for_status()
+
+        if delete_dataset_response.status_code == 204:
+            return True
+        else:
+            return False
+
+

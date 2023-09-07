@@ -9,7 +9,7 @@ from dash.dependencies import Output, Input
 from flask import session
 
 from auth import AppIDAuthProvider
-from components import FileUploadTabs, Sidebar, Settings, Workspaces, MagDataComponent, Toast, ModalComponent
+from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, MagDataComponent, Toast, ModalComponent
 from dataservices import InMermoryDataService
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
@@ -61,7 +61,8 @@ app.layout = dmc.MantineProvider(
                {"wine-red": ["#C85252"] * 9,
                 "dark-green": ["#009688"]*9,
                 "dark-yellow": ["#5C6BC0"]*9,
-                "dark-gray": ["#212121"]*9
+                "dark-gray": ["#212121"]*9,
+                "light-cyan": ["#B2EBF2"]*9
                 }
            }
 )

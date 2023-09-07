@@ -11,7 +11,8 @@ import dash_mantine_components as dmc
 import dask.array as da
 import dask.dataframe as ddf
 import pandas as pd
-from dash import html, Output, Input, callback, no_update, State, ctx, clientside_callback, Patch, ALL, MATCH
+from dash import html, Output, Input, callback, no_update, State, ctx, clientside_callback, Patch, ALL, MATCH, \
+    callback_context
 from dash_iconify import DashIconify
 from dask.distributed import Client, LocalCluster
 from flask import session
@@ -641,16 +642,20 @@ def update(set_progress, back, next_, current, session_store,
 
 def switch_datasets_tab_outer(app: dash.Dash, du):
     @app.callback(
-        Output({'type': 'tab', 'subset': 'dataset', 'idx': MATCH}, 'children'),
+        Output({'type': 'tab', 'subset': 'dataset', 'idx': ALL}, 'children'),
         Input('dataset_tabs', 'active_tab'),
         State('local', 'data'),
     )
     def switch_datasets_tab(at, session_store):
+        ctx = callback_context
+        triggered = ctx.triggered_id
+        # if not triggered:
+        #     return no_update
         if at == "file_upload":
             uploader = get_upload_file_tab_content(du, upload_id=session[AppIDAuthProvider.APPID_USER_NAME])
-            return uploader
+            return no_update, uploader
         elif at == "existing_datasets":
-            return DatasetsComponent.get_datasets(session_store=session_store)
+            return DatasetsComponent.get_datasets(session_store=session_store), no_update
 
 
 clientside_callback(
