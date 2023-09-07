@@ -132,9 +132,9 @@ class DatasetsOutput(DatasetInput):
 
 
 class DatasetFilterDTO(BaseModel):
-    project_id: str
-    dataset_name: str
-    dataset_type_id: str
+    project_id: str | None
+    dataset_name: str | None
+    dataset_type_id: str | None
 
 
 class DatasetType(BaseModel):

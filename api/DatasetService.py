@@ -68,4 +68,23 @@ class DatasetService:
         else:
             return False
 
+    @classmethod
+    @cache.memoize(timeout=500000, args_to_ignore=['session_store'])
+    def get_dataset_by_id(cls, dataset_id, session_store):
+        bearer_token = session_store['APPID_USER_TOKEN']
+        headers = {'Authorization': f"Bearer {bearer_token}"}
+
+        print('GET DATASET By ID IS GETTING CALLED!')
+
+        get_dataset_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{dataset_id}"
+
+        dataset_response = requests.get(get_dataset_endpoint, headers=headers)
+        dataset_response.raise_for_status()
+        dataset = dataset_response.json()
+
+        dataset = parse_obj_as(DatasetsWithDatasetTypeDTO, dataset)
+        return dataset
+
+
+
 

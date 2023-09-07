@@ -65,7 +65,7 @@ class ProjectService:
         return project
 
     @classmethod
-    @cache.memoize(timeout=500000, args_to_ignore=['session'])
+    @cache.memoize(timeout=500000, args_to_ignore=['session_store'])
     def fetch_projects(cls, session_store, params, offset=0, limit=10) -> List[ProjectsOutput]:
         print('fetch_projects is getting called now === ')
         bearer_token = session_store['APPID_USER_TOKEN']

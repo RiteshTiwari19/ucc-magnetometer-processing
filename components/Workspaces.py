@@ -30,7 +30,8 @@ def get_workspaces_html(total_projects=2):
                                 activeLabelClassName="text-success"),
                     ],
                     id="tabs",
-                    active_tab="projects" if 'current_active_project' not in session else "mag_data",
+                    # active_tab="projects" if 'current_active_project' not in session else "mag_data",
+                    active_tab="projects",
                     style={'width': '100%'}
                 ),
                 html.Div(id="workspace-content", style={

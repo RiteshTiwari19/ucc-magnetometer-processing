@@ -7,10 +7,13 @@ import dash_uploader as du
 from dash import dcc, html, Patch
 from dash.dependencies import Output, Input
 from flask import session
+from flask import Flask, send_from_directory
 
 from auth import AppIDAuthProvider
-from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, MagDataComponent, Toast, ModalComponent
+from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, MagDataComponent, Toast, \
+    ModalComponent
 from dataservices import InMermoryDataService
+from utils.ExportUtils import ExportUtils
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
 
@@ -29,6 +32,27 @@ CONTENT_STYLE = {
     "margin": "1rem",
     "width": "95%",
 }
+
+
+@auth.flask.route("/download/<path:path>")
+@auth.check
+def download(path):
+    """Serve a file from the upload directory."""
+    root_dir = os.path.dirname(os.getcwd())
+    dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'processed')
+
+    azr_path = path.split('____')[-1]
+    path = path.split('____')[0]
+
+    if not os.path.exists(f"{dir}/{path}"):
+        if path.endswith('csv'):
+            ExportUtils.export_csv(azr_path, session=session)
+        elif path.endswith('zip'):
+            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session)
+            dir = dir + dir_out
+
+    return send_from_directory(dir, path, as_attachment=True)
+
 
 app.layout = dmc.MantineProvider(
     children=dmc.NotificationsProvider(html.Div([
@@ -59,10 +83,10 @@ app.layout = dmc.MantineProvider(
     theme={"colorScheme": "dark",
            "colors":
                {"wine-red": ["#C85252"] * 9,
-                "dark-green": ["#009688"]*9,
-                "dark-yellow": ["#5C6BC0"]*9,
-                "dark-gray": ["#212121"]*9,
-                "light-cyan": ["#B2EBF2"]*9
+                "dark-green": ["#009688"] * 9,
+                "dark-yellow": ["#5C6BC0"] * 9,
+                "dark-gray": ["#212121"] * 9,
+                "light-cyan": ["#B2EBF2"] * 9
                 }
            }
 )

@@ -28,3 +28,5 @@ redis
 pydantic~=1.10.12
 colorcet~=3.0.1
 azure-storage-blob
+shapely~=2.0.1
+geopandas~=0.13.2

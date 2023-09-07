@@ -1,16 +1,18 @@
 from typing import List
+from urllib.parse import quote as urlquote
 
 import dash_bootstrap_components as dbc
-import dash_core_components as dcc
 import dash_mantine_components as dmc
-from dash import State, html, Input, Output, Patch, ALL, callback, clientside_callback, MATCH, callback_context, \
+from dash import State, html, Input, Output, ALL, callback, clientside_callback, MATCH, callback_context, \
     no_update
+from dash import dcc
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
+from api.DatasetTypeService import DatasetTypeService
 from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO
 from components import Toast
 
@@ -25,10 +27,54 @@ def get_color_based_on_dataset_type(dataset_type_name):
 
 
 def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None):
+
+    dataset_papers = [html.Div(id='choose-project-link-modal'),
+                      dmc.Group([
+                          dmc.Group([
+                              html.Div([
+                                  "Project",
+                                  dcc.Dropdown(
+                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                                          'sub': 'project-filter'})
+                              ], style={'width': '100%'}),
+                              html.Div([
+                                  "Dataset Type",
+                                  dcc.Dropdown(
+                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                                          'sub': 'dataset-type-filter'})
+                              ], style={'width': '100%'}),
+
+                              dmc.TextInput(label="Dataset Name:", placeholder="Provide a dataset name to filter",
+                                            id='dataset-name-filter', icon=DashIconify(icon='ic:sharp-search',
+                                                                                       width=30)),
+                          ], grow=True, style={'minWidth': '80%'}),
+                          dmc.Group([
+                              dmc.Button('Filter',
+                                         leftIcon=DashIconify(icon="system-uicons:filter", color='dark-green',
+                                                              width=20),
+                                         variant='filled',
+                                         color='blue',
+                                         id='filter-datasets-button'
+                                         )
+                          ], grow=False, maw='200px')
+
+                      ], align='end', grow=True, position='apart')
+                      ]
+
+    datasets = get_datasets_from_db(datasets_filter, session_store)
+
+    out = dmc.Stack([
+        dmc.Stack(dataset_papers, align='stretch', id='datasets_filter_stack'),
+        dmc.Stack(children=datasets, align='stretch', mt='sm', id='datasets_stack')
+    ], align='stretch', mt='lg')
+
+    return out
+
+
+def get_datasets_from_db(datasets_filter, session_store):
+    dataset_papers = []
     datasets: List[DatasetsWithDatasetTypeDTO] = DatasetService.get_datasets(session=session_store,
                                                                              datasets_filter=datasets_filter)
-    dataset_papers = [html.Div(id='choose-project-link-modal')]
-
     for idx, dataset in enumerate(datasets):
         dataset_paper = \
             dmc.Paper(
@@ -96,23 +142,26 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
                                         dmc.MenuDropdown(children=
                                         [
                                             dmc.MenuLabel("Format"),
-                                            dmc.MenuItem("CSV",
-                                                         icon=DashIconify(icon="iwwa:csv", color="lime"),
-                                                         style={
-                                                             'width': '100%'
-                                                         }
-                                                         ),
+                                            dmc.MenuItem(
+                                                "CSV",
+                                                href=file_download_link(dataset=dataset,
+                                                                        session_store=session_store, dtype='csv'),
+                                                target="_blank",
+                                                icon=DashIconify(icon="iwwa:csv", color="lime"),
+                                            ),
                                             dmc.MenuItem("Raster",
                                                          icon=DashIconify(icon="vaadin:raster", color="lime"),
-                                                         style={
-                                                             'width': '100%'
-                                                         }
+                                                         href=file_download_link(dataset=dataset,
+                                                                                 session_store=session_store,
+                                                                                 dtype='raster'),
+                                                         target="_blank"
                                                          ),
                                             dmc.MenuItem("Shapefile",
                                                          icon=DashIconify(icon="gis:shape-file", color="lime"),
-                                                         style={
-                                                             'width': '100%'
-                                                         }
+                                                         href=file_download_link(dataset=dataset,
+                                                                                 session_store=session_store,
+                                                                                 dtype='zip'),
+                                                         target="_blank"
                                                          )
                                         ],
                                             style={'width': '100%'}
@@ -125,14 +174,14 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
                                 )
                             ], id=f'dataset-btn-stack-{idx}')
                         ],
-                        position='apart'
+                        position='apart', id='datasets-view-group'
                     )
                 ],
                 radius='md',
                 shadow='lg',
                 p='md')
         dataset_papers.append(dataset_paper)
-    return dmc.Stack(children=dataset_papers, align='stretch', mt='lg')
+    return dataset_papers
 
 
 clientside_callback(
@@ -164,7 +213,7 @@ clientside_callback(
     Output('dataset_tabs', 'active_tab'),
     Output("toast-placeholder-div", "children", allow_duplicate=True),
     Input({'type': 'btn', 'subset': 'datasets', 'action': ALL, 'index': ALL}, "n_clicks"),
-    State({'idx': ALL, 'type': 'backend-search-dropdown'}, "value"),
+    State({'idx': ALL, 'type': 'backend-search-dropdown', 'sub': 'link-filter'}, "value"),
     State('local', "data"),
     prevent_initial_call=True
 )
@@ -183,7 +232,7 @@ def cta_handler(n_clicks, project_id, session_store):
         cache.delete_memoized(DatasetService.get_datasets)
         return "existing_datasets", Toast.get_toast("Notification", 'Dataset deleted successfully', icon='info')
     if action == 'link_to_project':
-        status = ProjectsService.ProjectService\
+        status = ProjectsService.ProjectService \
             .link_dataset_to_project(project_id=project_id[0], dataset_id=dataset_id, session_store=session_store)
 
         if status == 'NO_UPDATE':
@@ -205,7 +254,7 @@ def cta_handler(n_clicks, project_id, session_store):
 def open_modal(n_clicks, session_store):
     ct = callback_context
     button_id = ct.triggered_id
-    if not button_id:
+    if not any(click for click in n_clicks):
         raise PreventUpdate
 
     dataset_id = button_id['index']
@@ -233,7 +282,8 @@ def get_link_to_project_modal(dataset_id, dataset_name):
 
                     html.Div([
                         "Search Project",
-                        dcc.Dropdown(id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown'})
+                        dcc.Dropdown(id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                                         'sub': 'link-filter'})
                     ]),
 
                     dmc.Space(h=20),
@@ -258,16 +308,59 @@ def get_link_to_project_modal(dataset_id, dataset_name):
 
 
 @callback(
-    Output({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown'}, "options"),
-    Input({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown'}, "search_value"),
+    Output({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': MATCH}, "options"),
+    Input({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': MATCH}, "search_value"),
     State("local", "data")
 )
 def update_options(search_value, session_store):
     if not search_value or len(search_value) <= 2:
         raise PreventUpdate
 
-    params = {'project_name': search_value}
+    triggered = callback_context.triggered_id
+    subject = triggered['sub']
 
-    options = ProjectsService.ProjectService.fetch_projects(session_store=session_store, params=params)
-    options = [{'label': o.name, 'value': o.id} for o in options]
-    return [o for o in options if search_value in o["label"]]
+    if subject == 'link-filter' or subject == 'project-filter':
+        params = {'project_name': search_value}
+
+        options = ProjectsService.ProjectService.fetch_projects(session_store=session_store, params=params)
+        options = [{'label': o.name, 'value': o.id} for o in options]
+
+        return options
+
+    elif subject == 'dataset-type-filter':
+        data_types = DatasetTypeService.get_dataset_types(session=session_store)
+        options = [{'label': data_type.name, 'value': data_type.id} for data_type in data_types]
+        return options
+    else:
+        return no_update
+
+
+@callback(
+    Output('datasets_stack', 'children'),
+    Input('filter-datasets-button', 'n_clicks'),
+    State('dataset-name-filter', 'value'),
+    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'project-filter'}, 'value'),
+    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'dataset-type-filter'}, 'value'),
+    State('local', 'data'),
+    prevent_initial_update=True
+)
+def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_query, session_store):
+    if not n_clicks:
+        raise PreventUpdate
+    else:
+        dataset_filter_dto: DatasetFilterDTO = DatasetFilterDTO()
+        if dataset_name_query:
+            dataset_filter_dto.dataset_name = dataset_name_query
+
+        if dataset_type_query:
+            dataset_filter_dto.dataset_type_id = dataset_type_query
+
+        if project_query:
+            dataset_filter_dto.project_id = project_query
+
+    return get_datasets_from_db(datasets_filter=dataset_filter_dto, session_store=session_store)
+
+
+def file_download_link(dataset, session_store, dtype='csv'):
+    location = "/download/{}.{}____{}".format(urlquote(dataset.name), dtype, dataset.path)
+    return location
