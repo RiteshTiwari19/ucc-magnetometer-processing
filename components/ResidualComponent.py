@@ -5,7 +5,9 @@ import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import numpy as np
 import plotly.express as px
-from dash import dcc, html, Input, Output, State, Patch, no_update, ALL, callback, clientside_callback, callback_context
+from dash import dcc, html, Input, Output, State, Patch, no_update, ALL, callback, clientside_callback, \
+    callback_context, MATCH
+from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 from flask import session
 
@@ -47,7 +49,9 @@ def get_mag_data_page(session, configured_du):
         html.Div(ModalComponent.get_upload_data_modal(configured_du,
                                                       upload_id=session[AppIDAuthProvider.APPID_USER_NAME]),
                  style={'width': '100%'}),
-        html.Div(get_page_tags(active_project), id='mag-data-tags-div',
+        html.Div(get_page_tags(active_project, tags_to_add={
+            'Stage': 'Residual'
+        }), id='mag-data-tags-div',
                  style={
                      'display': 'flex',
                      'flexDirection': 'row',
@@ -64,7 +68,7 @@ def get_mag_data_page(session, configured_du):
                 searchable=True,
                 nothingFound="No dataset found",
                 icon=DashIconify(icon="bxs:data"),
-                persistence=False,
+                persistence=True,
                 placeholder='Select Dataset',
                 selectOnBlur=True,
                 clearable=True,
@@ -252,8 +256,17 @@ def get_mag_data_page(session, configured_du):
         ),
         html.Div(children=[
             dmc.Group(children=[
-                dmc.Button('Skip', variant='outline', color='gray'),
-                dmc.Button('Next', variant='color', color='green', id='go-to-interpolation'),
+                dmc.Button('Previous', variant='outline', color='blue',
+                           id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data_interpolation',
+                               'prev': 'mag_data_diurnal', 'action': 'previous'}
+                           ),
+                dmc.Button('Skip', variant='outline', color='gray',
+                           id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data_interpolation',
+                               'prev': 'mag_data_diurnal', 'action': 'skip'}
+                           ),
+                dmc.Button('Next', variant='color', color='green',
+                           id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data_interpolation',
+                               'prev': 'mag_data_diurnal', 'action': 'next'}),
             ])
         ],
             className='fix-bottom-right')
@@ -283,6 +296,7 @@ def update_tags(selected_dataset, current_tags, session_store):
         active_project = ProjectService.get_project_by_id(project_id=session['current_active_project'],
                                                           session=session_store)
 
+        active_project.tags['Stage'] = 'Residual'
         active_project.tags['Survey'] = selected_dataset
 
         tag_buttons = []
@@ -451,12 +465,45 @@ def switch_plot_layout(checked, state):
 
 @callback(
     Output("tabs", "active_tab", allow_duplicate=True),
-    Input("go-to-interpolation", "n_clicks"),
+    Input({'type': 'btn', 'subset': 'main-proj-flow', 'next': ALL,
+           'prev': ALL, 'action': ALL}, "n_clicks"),
+    Input("tabs", "active_tab"),
     prevent_initial_call=True
 )
-def switch_tab(btn_click):
-    if btn_click is not None:
-        return "mag_data_interpolation"
+def switch_tab(btn_click, current_active_tab):
+
+    prev_next_dict = {
+        'mag_data_diurnal': {'prev': 'None', 'next': 'mag_data'},
+        'mag_data': {'prev': 'mag_data_diurnal', 'next': 'mag_data_interpolation'},
+        'mag_data_interpolation': {'prev': 'mag_data', 'next': 'None'},
+    }
+
+    if any(click for click in btn_click):
+        triggered = callback_context.triggered_id
+
+        if type(triggered) == str:
+            return current_active_tab
+
+        action = triggered['action']
+
+        next = triggered['next']
+        prev = triggered['prev']
+
+        if action == 'next' and next != 'None':
+            if current_active_tab != prev_next_dict[next]['prev']:
+                return current_active_tab
+            else:
+                return next
+        if action == 'skip' and next != 'None':
+            if current_active_tab != prev_next_dict[next]['prev']:
+                return current_active_tab
+            else:
+                return next
+        if action == 'previous' and prev != 'None':
+            if current_active_tab != prev_next_dict[prev]['next']:
+                return current_active_tab
+            else:
+                return prev
     else:
         return no_update
 

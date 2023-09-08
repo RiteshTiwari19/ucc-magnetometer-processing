@@ -76,7 +76,10 @@ label.form-label {
 }
 
 .fix-bottom-right {
-    position: absolute;
+    position: sticky;
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 2em;
     bottom: 50px;
     right: 50px;
 }

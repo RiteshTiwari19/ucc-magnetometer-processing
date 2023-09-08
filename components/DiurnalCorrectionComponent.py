@@ -21,7 +21,17 @@ def get_diurnal_correction_page(session):
                      'flexWrap': 'wrap',
                      'alignItems': 'space-between',
                      'justifyContent': 'flex-start'
-                 })
-    ], align='stretch')
+                 }),
+        html.Div(children=[
+            dmc.Group(children=[
+                dmc.Button('Skip', variant='outline', color='gray',
+                           id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+                               'prev': 'None', 'action': 'skip'}),
+                dmc.Button('Next', variant='color', color='green',
+                           id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+                               'prev': 'None', 'action': 'next'}),
+            ])
+        ],
+            className='fix-bottom-right')], align='stretch')
 
     return diurnal_page
