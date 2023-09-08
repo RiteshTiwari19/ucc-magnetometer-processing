@@ -40,8 +40,8 @@ class UserService:
     def get_user_projects(cls, user_id, session, purpose='general') -> List[dict]:
         user_projects = cls.get_projects(session, user_id=user_id)
         ret_dct = [{'name': up.name,
-                    'date_created': up.created_at,
-                    'date_modified': up.modified_at,
+                    'date_created': up.created_at.strftime("%m/%d/%Y, %H:%M:%S"),
+                    'date_modified': up.modified_at.strftime("%m/%d/%Y, %H:%M:%S"),
                     'id': up.id
                     } for up in
                    user_projects]

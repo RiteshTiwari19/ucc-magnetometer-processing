@@ -18,7 +18,11 @@ from components import ModalComponent, MapboxScatterPlot
 from dataservices import InMermoryDataService
 
 
-def get_page_tags(active_project):
+def get_page_tags(active_project, tags_to_add: dict = None):
+    if tags_to_add:
+        for k, v in tags_to_add.items():
+            active_project.tags[k] = v
+
     tag_buttons = [dmc.Group([dmc.Button(
         [
             f"{key.upper()}: ",
@@ -280,16 +284,15 @@ def update_tags(selected_dataset, current_tags, session_store):
         active_project = ProjectService.get_project_by_id(project_id=session['current_active_project'],
                                                           session=session_store)
 
-
         active_project.tags['Survey'] = selected_dataset
 
         tag_buttons = []
         idx = 0
         for key, value in active_project.tags.items():
             btn_id = f'disabled-tag-btn-{idx}' if key != 'Survey' else {'type': 'button',
-                                                                         'subset': 'residual-dataset-page',
-                                                                         'idx': 'select-dataset',
-                                                                         'action': 'select-dataset'}
+                                                                        'subset': 'residual-dataset-page',
+                                                                        'idx': 'select-dataset',
+                                                                        'action': 'select-dataset'}
             btn_variant = 'subtle' if key != 'Survey' else 'outline'
             btn_color = 'gray' if key != 'Survey' else 'orange'
 

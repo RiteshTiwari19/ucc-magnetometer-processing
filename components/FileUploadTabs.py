@@ -647,10 +647,7 @@ def switch_datasets_tab_outer(app: dash.Dash, du):
         State('local', 'data'),
     )
     def switch_datasets_tab(at, session_store):
-        ctx = callback_context
-        triggered = ctx.triggered_id
-        # if not triggered:
-        #     return no_update
+
         if at == "file_upload":
             uploader = get_upload_file_tab_content(du, upload_id=session[AppIDAuthProvider.APPID_USER_NAME])
             return no_update, uploader
