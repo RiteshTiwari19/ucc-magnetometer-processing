@@ -11,6 +11,7 @@ class DatasetTypesResponse(BaseModel):
 
 
 class DatasetResponse(BaseModel):
+    id: str | None
     name: str | None
     path: str | None
     created_at: datetime | None
@@ -87,6 +88,7 @@ class UserResponseDatasetsDTO(UserResponse):
 
 class UpdateProjectTagsDTO(BaseModel):
     tags: dict | None
+    settings: dict | None
 
 
 class ProjectsOutput(BaseModel):
@@ -102,6 +104,7 @@ class ProjectsOutput(BaseModel):
     id: str | None
     name: str | None
     tags: dict | None
+    settings: dict | None
     created_at: datetime | None
     modified_at: datetime | None
     datasets: List[ProjectDatasetDTO] | None

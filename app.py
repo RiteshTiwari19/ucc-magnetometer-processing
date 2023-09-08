@@ -34,9 +34,9 @@ CONTENT_STYLE = {
 }
 
 
-@auth.flask.route("/download/<path:path>")
+@auth.flask.route("/download/<path:path>/<path:dataset_id>")
 @auth.check
-def download(path):
+def download(path, dataset_id):
     """Serve a file from the upload directory."""
     root_dir = os.path.dirname(os.getcwd())
     dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'processed')
@@ -46,9 +46,9 @@ def download(path):
 
     if not os.path.exists(f"{dir}/{path}"):
         if path.endswith('csv'):
-            ExportUtils.export_csv(azr_path, session=session)
+            ExportUtils.export_csv(dataset_path=azr_path, dataset_id=dataset_id, session=session)
         elif path.endswith('zip'):
-            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session)
+            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session, dataset_id=dataset_id)
             dir = dir + dir_out
 
     return send_from_directory(dir, path, as_attachment=True)
@@ -107,6 +107,7 @@ def render_page_content(pathname):
     patch[AppIDAuthProvider.APPID_USER_TOKEN] = session[AppIDAuthProvider.APPID_USER_TOKEN]
     patch[AppIDAuthProvider.APPID_USER_BACKEND_ID] = session[AppIDAuthProvider.APPID_USER_BACKEND_ID]
     patch[AppIDAuthProvider.APPID_USER_ROLES] = session[AppIDAuthProvider.APPID_USER_ROLES]
+    patch[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in session else None
     if pathname == "/dashboard/":
         return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces)), patch
     elif pathname == "/dashboard/datasets":

@@ -174,15 +174,15 @@ def switch_workspace_tab_outer(app: dash.Dash, du):
             return [get_existing_workspaces(displayed_workspace), no_update, no_update, no_update]
         elif at == "mag_data_diurnal":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, DiurnalCorrectionComponent.get_diurnal_correction_page(session), no_update, no_update]
+            return [no_update, DiurnalCorrectionComponent.get_diurnal_correction_page(session_store), no_update, no_update]
 
         elif at == "mag_data":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, no_update, ResidualComponent.get_mag_data_page(session, du), no_update]
+            return [no_update, no_update, ResidualComponent.get_mag_data_page(session_store, du), no_update]
 
         elif at == "mag_data_interpolation":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, no_update, no_update, InterpolationComponent.get_interpolation_page(session)]
+            return [no_update, no_update, no_update, InterpolationComponent.get_interpolation_page(session_store)]
         else:
             raise PreventUpdate
 
@@ -223,6 +223,7 @@ def handle_pagination(at, active_page, session_store):
 @callback(
     Output("tabs", "active_tab", allow_duplicate=True),
     Output({'type': 'button', 'subset': 'projects', 'idx': ALL, 'action': ALL}, "loading", allow_duplicate=True),
+    Output("local", "data", allow_duplicate=True),
     Input({'type': 'button', 'subset': 'projects', 'idx': ALL, 'action': ALL}, 'n_clicks'),
     State({'type': 'input', 'form': 'new_proj', 'id': ALL}, 'value'),
     State("tabs", "active_tab"),
@@ -233,21 +234,23 @@ def workspace_button_handler(clicks, form_value, active_tab_current_state, sessi
     button_id = ct.triggered_id
 
     if button_id is None:
-        return active_tab_current_state, [False] * len(clicks)
+        return active_tab_current_state, [False] * len(clicks), no_update
 
     if button_id['action'] == 'wrk-create':
         if form_value[0] is not None:
             project_to_create = get_new_project(project_name=form_value[0], session_store=session_store)
             ProjectService.create_new_project(project=project_to_create, session=session_store)
             cache.delete_memoized(UserService.get_projects)
-            return "projects", [False] * len(clicks)
+            return "projects", [False] * len(clicks), no_update
     elif button_id['action'] == 'wrk-delete':
         ProjectService.delete_project(session=session_store, project_id=button_id['idx'])
         cache.delete_memoized(UserService.get_projects)
     elif button_id['action'] == 'wrk-select':
         session['current_active_project'] = button_id['idx']
-        return "mag_data_diurnal", [False] * len(clicks)
-    return "projects", [False] * len(clicks)
+        patch = Patch()
+        patch['current_active_project']= button_id['idx']
+        return "mag_data_diurnal", [False] * len(clicks), patch
+    return "projects", [False] * len(clicks), no_update
 
 
 clientside_callback(

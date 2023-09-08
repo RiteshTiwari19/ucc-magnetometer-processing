@@ -5,35 +5,25 @@ import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import numpy as np
 import plotly.express as px
-from dash import dcc, html, Input, Output, State, Patch, no_update, ALL, callback, clientside_callback, \
-    callback_context, MATCH
-from dash.exceptions import PreventUpdate
+from dash import dcc, html, Input, Output, State, no_update, ALL, callback, clientside_callback, \
+    callback_context
 from dash_iconify import DashIconify
 from flask import session
 
-from FlaskCache import cache
 from api import ResidualService
 from api.ProjectsService import ProjectService
-from api.dto import UpdateProjectTagsDTO
 from auth import AppIDAuthProvider
 from components import ModalComponent, MapboxScatterPlot
 from dataservices import InMermoryDataService
+from flask import session
 
 
-def get_page_tags(active_project, tags_to_add: dict = None):
+def get_page_tags(active_project, session_store, tags_to_add: dict = None):
     if tags_to_add:
         for k, v in tags_to_add.items():
             active_project.tags[k] = v
 
-    tag_buttons = [dmc.Group([dmc.Button(
-        [
-            f"{key.upper()}: ",
-            dmc.Badge(f"{value}", color="secondary", className="ms-1", variant='gradient',
-                      gradient={"from": "indigo", "to": "cyan"}),
-        ],
-        style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant='subtle', color='gray'
-    )
-    ]) for key, value in active_project.tags.items()]
+    tag_buttons = generate_tag_badges(active_project, session_store)
 
     return tag_buttons
 
@@ -51,7 +41,7 @@ def get_mag_data_page(session, configured_du):
                  style={'width': '100%'}),
         html.Div(get_page_tags(active_project, tags_to_add={
             'Stage': 'Residual'
-        }), id='mag-data-tags-div',
+        }, session_store=session), id='mag-data-tags-div',
                  style={
                      'display': 'flex',
                      'flexDirection': 'row',
@@ -299,34 +289,52 @@ def update_tags(selected_dataset, current_tags, session_store):
         active_project.tags['Stage'] = 'Residual'
         active_project.tags['Survey'] = selected_dataset
 
-        tag_buttons = []
-        idx = 0
-        for key, value in active_project.tags.items():
-            btn_id = f'disabled-tag-btn-{idx}' if key != 'Survey' else {'type': 'button',
-                                                                        'subset': 'residual-dataset-page',
-                                                                        'idx': 'select-dataset',
-                                                                        'action': 'select-dataset'}
-            btn_variant = 'subtle' if key != 'Survey' else 'outline'
-            btn_color = 'gray' if key != 'Survey' else 'orange'
-
-            btn_to_add = dmc.Group([dmc.Button(
-                [
-                    f"{key.upper()}: ",
-                    dmc.Badge(f"{value}", color="secondary", className="ms-1", variant='gradient',
-                              gradient={"from": "indigo", "to": "cyan"}),
-                ],
-                style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant=btn_variant,
-                color=btn_color,
-                id=btn_id
-            )
-            ])
-
-            idx += 1
-            tag_buttons.append(btn_to_add)
+        tag_buttons = generate_tag_badges(active_project, session_store)
 
         return tag_buttons, "hide-div"
     else:
         return no_update, no_update
+
+
+def generate_tag_badges(active_project, session_store):
+    tag_buttons = []
+    idx = 0
+    for key, value in active_project.tags.items():
+        if key == 'Survey':
+            btn_id = {'type': 'button',
+                      'subset': 'residual-dataset-page',
+                      'idx': 'select-survey-dataset',
+                      'action': 'select-dataset'}
+        elif key == 'Observatory':
+            btn_id = {'type': 'button',
+                      'subset': 'residual-dataset-page',
+                      'idx': 'select-observatory-dataset',
+                      'action': 'select-dataset'}
+        else:
+            btn_id = f'disabled-tag-btn-{idx}'
+
+        # btn_id = f'disabled-tag-btn-{idx}' if key != 'Survey' else {'type': 'button',
+        #                                                             'subset': 'residual-dataset-page',
+        #                                                             'idx': 'select-dataset',
+        #                                                             'action': 'select-dataset'}
+        btn_variant = 'subtle' if key not in ['Survey', 'Observatory'] else 'outline'
+        btn_color = 'gray' if key not in ['Survey', 'Observatory'] else 'orange'
+
+        btn_to_add = dmc.Group([dmc.Button(
+            [
+                f"{key.upper()}: ",
+                dmc.Badge(f"{value}", color="secondary", className="ms-1", variant='gradient',
+                          gradient={"from": "indigo", "to": "cyan"}),
+            ],
+            style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant=btn_variant,
+            color=btn_color,
+            id=btn_id
+        )
+        ])
+
+        idx += 1
+        tag_buttons.append(btn_to_add)
+    return tag_buttons
 
 
 def hide_dataset_selection_div_outer(app: dash.Dash):
@@ -471,7 +479,6 @@ def switch_plot_layout(checked, state):
     prevent_initial_call=True
 )
 def switch_tab(btn_click, current_active_tab):
-
     prev_next_dict = {
         'mag_data_diurnal': {'prev': 'None', 'next': 'mag_data'},
         'mag_data': {'prev': 'mag_data_diurnal', 'next': 'mag_data_interpolation'},

@@ -55,6 +55,15 @@ label.form-label {
     display: flex!important;
 }
 
+
+.show-div-simple {
+    display: inline-block!important;
+}
+
+.hide-div-simple {
+    display: none!important;
+}
+
 .one-per-row {
     flex-direction: column!important;
 }

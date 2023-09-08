@@ -23,7 +23,7 @@ def get_interpolation_page(session):
     interpoation_page = html.Div([
         html.Div(ResidualComponent.get_page_tags(active_project, tags_to_add={
             'Stage': 'Interpolation'
-        }), id='mag-data-tags-div',
+        }, session_store=session), id='mag-data-tags-div',
                  style={
                      'display': 'flex',
                      'flexDirection': 'row',

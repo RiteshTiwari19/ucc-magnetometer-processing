@@ -37,7 +37,7 @@ class ProjectService:
 
     @classmethod
     @cache.memoize(timeout=500000, args_to_ignore=['session'])
-    def get_project_by_id(cls, session, project_id):
+    def get_project_by_id(cls, session, project_id) -> ProjectsOutput:
         print('get_project_by_id is getting called now === ')
         bearer_token = session['APPID_USER_TOKEN']
         headers = {'Authorization': f"Bearer {bearer_token}"}
@@ -62,6 +62,7 @@ class ProjectService:
 
         project = project_response.json()
         project = parse_obj_as(ProjectsOutput, project)
+        cache.delete_memoized(ProjectService.get_project_by_id)
         return project
 
     @classmethod
