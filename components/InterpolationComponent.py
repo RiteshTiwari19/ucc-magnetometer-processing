@@ -13,7 +13,7 @@ from flask import session
 from api import ResidualService
 from api.ProjectsService import ProjectService
 from auth import AppIDAuthProvider
-from components import ModalComponent, MapboxScatterPlot, MagDataComponent
+from components import ModalComponent, MapboxScatterPlot, ResidualComponent
 from dataservices import InMermoryDataService
 
 
@@ -21,7 +21,7 @@ def get_interpolation_page(session):
     active_project = ProjectService.get_project_by_id(session=session,
                                                       project_id=session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
     interpoation_page = html.Div([
-        html.Div(MagDataComponent.get_page_tags(active_project), id='mag-data-tags-div',
+        html.Div(ResidualComponent.get_page_tags(active_project), id='mag-data-tags-div',
                  style={
                      'display': 'flex',
                      'flexDirection': 'row',

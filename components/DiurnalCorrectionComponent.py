@@ -4,7 +4,7 @@ import dash_mantine_components as dmc
 
 from api.ProjectsService import ProjectService
 from auth import AppIDAuthProvider
-from components import MagDataComponent
+from components import ResidualComponent
 
 
 def get_diurnal_correction_page(session):
@@ -12,7 +12,7 @@ def get_diurnal_correction_page(session):
                                                       project_id=session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
 
     diurnal_page = dmc.Stack([
-        html.Div(MagDataComponent.get_page_tags(active_project, tags_to_add={
+        html.Div(ResidualComponent.get_page_tags(active_project, tags_to_add={
             'Stage': 'Diurnal Correction'
         }), id='diurnal-page-tags-div',
                  style={

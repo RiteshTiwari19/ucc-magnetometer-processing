@@ -10,7 +10,7 @@ from flask import session
 from flask import Flask, send_from_directory
 
 from auth import AppIDAuthProvider
-from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, MagDataComponent, Toast, \
+from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, ResidualComponent, Toast, \
     ModalComponent
 from dataservices import InMermoryDataService
 from utils.ExportUtils import ExportUtils
@@ -149,7 +149,7 @@ ModalComponent.toggle_upload_dataset_modal(app)
 
 Toast.open_toast(app)
 
-MagDataComponent.hide_dataset_selection_div_outer(app)
+ResidualComponent.hide_dataset_selection_div_outer(app)
 
 if __name__ == "__main__":
     app.run_server(host="0.0.0.0", debug=True)

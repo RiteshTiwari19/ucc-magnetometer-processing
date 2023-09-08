@@ -264,7 +264,6 @@ def get_mag_data_page(session, configured_du):
             'flexDirection': 'column',
             'width': '100%'
         },
-        # className="bg-dark rounded-3"
     )
 
     return mag_data_page

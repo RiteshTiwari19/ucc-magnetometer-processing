@@ -10,7 +10,7 @@ from api.ProjectsService import ProjectService
 from api.UserService import UserService
 from api.dto import CreateProjectDTO
 from auth import AppIDAuthProvider
-from components import Pagination, MagDataComponent, InterpolationComponent, DiurnalCorrectionComponent, PageSkeleton
+from components import Pagination, ResidualComponent, InterpolationComponent, DiurnalCorrectionComponent, PageSkeleton
 from dataservices import InMermoryDataService
 
 
@@ -178,70 +178,13 @@ def switch_workspace_tab_outer(app: dash.Dash, du):
 
         elif at == "mag_data":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, no_update, MagDataComponent.get_mag_data_page(session, du), no_update]
+            return [no_update, no_update, ResidualComponent.get_mag_data_page(session, du), no_update]
 
         elif at == "mag_data_interpolation":
             visibility_patch['visibility'] = 'hidden'
             return [no_update, no_update, no_update, InterpolationComponent.get_interpolation_page(session)]
         else:
             raise PreventUpdate
-
-
-# def switch_workspace_tab_outer(app: dash.Dash, du):
-#     @app.callback(
-#         Output("workspace-content", "children"),
-#         Output("workspace-pagination-footer", "style"),
-#         Output("workspace-pagination-footer", "children"),
-#         Output("pagination-bar", "active_page"),
-#         Input("tabs", "active_tab"),
-#         Input("pagination-bar", "active_page"),
-#         State("local", "data")
-#     )
-#     def switch_workspace_tab(at, active_page, session_store):
-#         visibility_patch = Patch()
-#         displayed_workspace = UserService.get_user_projects(
-#             user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
-#             session=session_store)
-#
-#         total_workspaces = len(displayed_workspace)
-#
-#         if at == "projects":
-#
-#             if total_workspaces % 5 == 0 and active_page * 5 > total_workspaces:
-#                 active_page = active_page - 1
-#
-#             if active_page <= 1:
-#                 active_page = 1
-#
-#             visibility_patch['visibility'] = 'visible'
-#             start_workspace = ((active_page * 5) - 5)
-#             end_workspace = start_workspace + 5
-#             if end_workspace > total_workspaces:
-#                 end_workspace = total_workspaces
-#
-#             displayed_workspace = displayed_workspace[start_workspace:end_workspace]
-#
-#             return get_existing_workspaces(displayed_workspace), visibility_patch, \
-#                 Pagination.get_pagination(
-#                     total_projects=total_workspaces), active_page
-#
-#         elif at == "mag_data":
-#             visibility_patch['visibility'] = 'hidden'
-#             return MagDataComponent.get_mag_data_page(session, du), visibility_patch, Pagination.get_pagination(
-#                 total_projects=total_workspaces), 1
-#         elif at == "mag_data_diurnal":
-#             visibility_patch['visibility'] = 'hidden'
-#             return DiurnalCorrectionComponent.get_diurnal_correction_page(
-#                 session), visibility_patch, Pagination.get_pagination(
-#                 total_projects=total_workspaces), 1
-#         elif at == "mag_data_interpolation":
-#             visibility_patch['visibility'] = 'hidden'
-#             return InterpolationComponent.get_interpolation_page(session), visibility_patch, Pagination.get_pagination(
-#                 total_projects=total_workspaces), 1
-#         else:
-#             visibility_patch['visibility'] = 'hidden'
-#             return html.P(""), visibility_patch, Pagination.get_pagination(
-#                 total_projects=total_workspaces), 1
 
 
 @callback(
