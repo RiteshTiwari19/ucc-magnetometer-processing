@@ -36,7 +36,7 @@ class ProjectService:
         return True
 
     @classmethod
-    @cache.memoize(timeout=500000, args_to_ignore=['session'])
+    @cache.memoize(timeout=50000, args_to_ignore=['session'])
     def get_project_by_id(cls, session, project_id) -> ProjectsOutput:
         print('get_project_by_id is getting called now === ')
         bearer_token = session['APPID_USER_TOKEN']

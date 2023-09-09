@@ -1,5 +1,8 @@
 import uuid
 
+import numpy as np
+import pandas as pd
+
 from FlaskCache import cache
 
 
@@ -28,21 +31,42 @@ class ResidualService:
 
     @classmethod
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
-    def calculate_durn_correction(cls, df_surf, df_obs):
+    def calculate_diurnal_correction(cls, df_surf: pd.DataFrame, df_obs: pd.DataFrame):
         print('Calculate Residuals got called')
 
-        df_surf['id'] = [uuid.uuid4() for _ in range(len(df_surf.index))]
+        min_survey_date = df_surf['Datetime'].min()
+        max_survey_date = df_surf['Datetime'].max()
 
-        df['Magnetic_Field_Smoothed'] = df['Magnetic_Field'].rolling(window=observed_smoothing_constant,
-                                                                     win_type='boxcar', center=True,
-                                                                     min_periods=1).mean()
+        df_obs = df_obs[(df_obs['Datetime'] >= min_survey_date) & (df_obs['Datetime'] <= max_survey_date)]
 
-        df['Magnetic_Field_Ambient'] = df['Magnetic_Field_Smoothed'] \
-            .rolling(window=ambient_smoothing_constant,
-                     win_type='boxcar',
-                     center=True,
-                     min_periods=1).mean()
+        df_surf['Datetime'] = pd.to_datetime(df_surf['Datetime'], format='mixed')
+        df_obs['Datetime'] = pd.to_datetime(df_obs['Datetime'], format='mixed')
 
-        df['Baseline'] = df['Magnetic_Field_Smoothed'] - df['Magnetic_Field_Ambient']
+        df_surf.set_index('Datetime', inplace=True)
+        df_obs.set_index('Datetime', inplace=True)
 
-        return df
+        survey_sampling_rate = df_surf.head(10000).index.to_series().diff().median().total_seconds()
+        observatory_sampling_rate = df_obs.head(10000).index.to_series().diff().median().total_seconds()
+
+        if observatory_sampling_rate != survey_sampling_rate:
+
+            if 0 < survey_sampling_rate < 1:
+                sample_rate = f'{str(survey_sampling_rate).split(".")[-1].ljust(3, "0")}ms'
+            else:
+                sample_rate = f'{survey_sampling_rate}s'
+
+        df_obs = df_obs[~df_obs.index.duplicated(keep='first')]
+        df_obs = df_obs.resample(sample_rate).interpolate(method='linear', limit=5, limit_direction='both')
+
+        df_obs = df_obs[(df_obs.index >= df_surf.index.min()) & (df_obs.index <= df_surf.index.max())]
+
+        df_obs = df_obs[df_obs.index.isin(df_surf.index)].sort_index()
+        df_obs['Magnetic_Field_Smoothed'] = df_obs['Magnetic_Field']\
+            .rolling(window=100, min_periods=1, win_type='boxcar', center=True).mean()
+        df_obs['Magnetic_Field_Smoothed'] = df_obs['Magnetic_Field_Smoothed'] - df_obs['Magnetic_Field_Smoothed'].mean()
+
+        df_surf = df_surf[df_surf.index.isin(df_obs.index)].sort_index()
+
+        df_surf['Magnetic_Field_Corrected'] = df_surf['Magnetic_Field'] - df_obs['Magnetic_Field_Smoothed'].abs()
+
+        return df_surf.dropna(subset=['Magnetic_Field_Corrected']).reset_index()

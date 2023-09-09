@@ -34,9 +34,9 @@ CONTENT_STYLE = {
 }
 
 
-@auth.flask.route("/download/<path:path>/<path:dataset_id>")
+@auth.flask.route("/download/<path:path>/")
 @auth.check
-def download(path, dataset_id):
+def download(path):
     """Serve a file from the upload directory."""
     root_dir = os.path.dirname(os.getcwd())
     dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'processed')
@@ -46,9 +46,9 @@ def download(path, dataset_id):
 
     if not os.path.exists(f"{dir}/{path}"):
         if path.endswith('csv'):
-            ExportUtils.export_csv(dataset_path=azr_path, dataset_id=dataset_id, session=session)
+            ExportUtils.export_csv(dataset_path=azr_path, dataset_id=None, session=session)
         elif path.endswith('zip'):
-            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session, dataset_id=dataset_id)
+            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session, dataset_id=None)
             dir = dir + dir_out
 
     return send_from_directory(dir, path, as_attachment=True)

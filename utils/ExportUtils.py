@@ -34,6 +34,7 @@ class ExportUtils:
             os.mkdir(file_dir)
 
         if not os.path.exists(file_path):
+            file_path = os.path.join(file_dir, f'{dataset_id}.{dataset_format}')
             linked = True if AppConfig.PROJECTS_CONTAINER in dataset_path else False
             BlobConnector.download_blob(blob_name=dataset_path, download_location=file_path, linked=linked)
         return file_path

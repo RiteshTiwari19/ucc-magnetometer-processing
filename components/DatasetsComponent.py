@@ -362,5 +362,5 @@ def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_qu
 
 
 def file_download_link(dataset, session_store, dtype='csv'):
-    location = "/download/{}.{}____{}/{}".format(urlquote(dataset.name), dtype, dataset.path, dataset.id)
+    location = "/download/{}.{}____{}".format(urlquote(dataset.name), dtype, dataset.path)
     return location

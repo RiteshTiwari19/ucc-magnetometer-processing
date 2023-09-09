@@ -194,7 +194,7 @@ def selected_dataset(value):
 def read_observatory_data(blob_path, session_store):
     cluster = LocalCluster()
     client = Client(cluster)
-    dask_df = ddf.read_table(blob_path).reset_index()
+    dask_df = ddf.read_table(blob_path, assume_missing=True).reset_index()
 
     cols = list(dask_df.columns) + ['RangeIndex']
     dask_df = dask_df.reset_index()
@@ -432,7 +432,7 @@ def save_and_validate_observatory_data(set_progress,
             print(col_map_keys)
 
             df = ddf.read_csv(data_path)[col_map_keys] if data_path.endswith('csv') else \
-                ddf.read_table(data_path)[col_map_keys]
+                ddf.read_table(data_path, dtype={'Datetime': str})[col_map_keys]
 
             print(df.columns)
             df = df.rename(columns=col_map)
