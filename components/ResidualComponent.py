@@ -42,7 +42,7 @@ def get_mag_data_page(session, configured_du):
     datasets = InMermoryDataService.DatasetsService.get_existing_datasets()
     drop_down_options = [{'label': dataset.name, 'value': dataset.name} for dataset in datasets]
 
-    scatter, map_box = get_residual_scatter_plot(session_store=session, col_to_plot='Magnetic_Field')
+    df, scatter, map_box = get_residual_scatter_plot(session_store=session, col_to_plot='Magnetic_Field')
 
     mag_data_page = html.Div([
         html.Div(ModalComponent.get_upload_data_modal(configured_du,
@@ -133,8 +133,32 @@ def get_mag_data_page(session, configured_du):
                            thumbIcon=DashIconify(
                                icon="dashicons:yes-alt", width=16, color=dmc.theme.DEFAULT_COLORS["teal"][5])
                            ),
-                className='hide-div', id='show-residuals-div')
+                className='hide-div', id='show-residuals-div'),
         ]),
+
+        html.Br(),
+
+        dmc.Group(children=[
+            dmc.TextInput(label="Min Value",
+                          id='clip-min',
+                          value=df['Magnetic_Field'].quantile(0.10),
+                          icon=DashIconify(
+                              icon="fluent-mdl2:minimum-value", width=16, color=dmc.theme.DEFAULT_COLORS["teal"][5])
+                          ),
+            dmc.TextInput(label="Max Value",
+                          id='clip-max',
+                          value=df['Magnetic_Field'].quantile(0.90),
+                          icon=DashIconify(
+                              icon="fluent-mdl2:maximum-value", width=16, color=dmc.theme.DEFAULT_COLORS["teal"][5])
+                          ),
+
+            dmc.Button("Clip", leftIcon=DashIconify(icon='mdi:clip', color='wine-red'),
+                       id='clip-button', variant='outline', disabled=True),
+
+            dmc.Button("Reset Clip", leftIcon=DashIconify(icon='bx:reset', color='wine-red'),
+                       id='reset-clp-btn', variant='filled', color='blue'),
+        ],
+            id='clip-cta-parent', align='end', position='center'),
 
         html.Br(),
 
@@ -321,15 +345,23 @@ def generate_tag_badges(active_project, session_store, skip_extra_styling=False)
     Output('residual-plot-nex-prev-btn-group', 'className'),
     Output('show-residuals-div', 'className'),
     Output('smoothing-constant-div', 'className'),
+    Output('clip-min', 'value'),
+    Output('clip-max', 'value'),
     Input('show-previous-residual-plot', 'n_clicks'),
     Input('show-next-residual-plot', 'n_clicks'),
     Input('calc-residuals-btn', 'n_clicks'),
     Input('show-residuals-switch', 'checked'),
+    Input('clip-button', 'n_clicks'),
+    Input('reset-clp-btn', 'n_clicks'),
     State('ambient-smoothing-slider', 'value'),
     State('observed-smoothing-slider', 'value'),
+    State('clip-min', 'value'),
+    State('clip-max', 'value'),
     prevent_initial_call=True
 )
-def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals, ambient, observed):
+def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals, clip,
+                 reset_clip, ambient, observed,
+                 min_val, max_val):
     if AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET not in session:
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = 0
 
@@ -339,9 +371,36 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     dataset_id = session[AppConfig.WORKING_DATASET]
 
     t_start = time.time()
-    df = get_or_download_dataframe(session_store=session, dataset_id=dataset_id)
+    df: pd.DataFrame = get_or_download_dataframe(session_store=session, dataset_id=dataset_id)
 
-    if triggered == 'calc-residuals-btn' or calc_residual_btn is not None:
+    min_mag = df['Magnetic_Field'].quantile(0.10)
+    max_mag = df['Magnetic_Field'].quantile(0.90)
+
+    min_mag_ret = min_mag if triggered == "reset-clp-btn" and reset_clip else no_update
+    max_mag_ret = max_mag if triggered == "reset-clp-btn" and reset_clip else no_update
+
+    if triggered == "reset-clp-btn":
+        cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
+        cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
+
+    condition = min_val and max_val and min_val != "" and max_val != "" \
+            and not max_mag <= float(min_val) \
+            and not min_mag >= float(max_val) \
+            and not (triggered == 'reset-clp-btn' and reset_clip)
+
+    if condition:
+        df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].le(float(min_val)))
+
+        df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].ge(float(max_val)))
+
+        df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
+
+        cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
+        cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
+
+    if triggered == 'calc-residuals-btn' or 'clip-button' or calc_residual_btn is not None:
+        if triggered == 'clip-button' and not condition and clip:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
         df = ResidualService.ResidualService.calculate_residuals(df, df_name=None,
                                                                  ambient_smoothing_constant=ambient,
                                                                  observed_smoothing_constant=observed)
@@ -364,16 +423,16 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     custom_data = 'id' if 'id' in df.columns else None
 
     if not show_residuals:
-        fig_residual = px.scatter(df.iloc[start:end], x='Unnamed: 0', y='Magnetic_Field', custom_data=custom_data,
+        fig_residual = px.scatter(df.reset_index().iloc[start:end], x='index', y='Magnetic_Field', custom_data=custom_data,
                                   labels={
-                                      "Unnamed: 0": "Index",
+                                      "index": "Index",
                                       "Magnetic_Field": "Magnetic Field",
                                   }, title="Magnetic Field vs Recording Index"
                                   )
     else:
-        fig_residual = px.scatter(df.iloc[start:end], x='Unnamed: 0', y='Baseline', custom_data=custom_data,
+        fig_residual = px.scatter(df.reset_index().iloc[start:end], x='index', y='Baseline', custom_data=custom_data,
                                   labels={
-                                      "Unnamed: 0": "Index",
+                                      "index": "Index",
                                       "Baseline": "Residuals",
                                   }, title="Residuals vs Recording Index")
 
@@ -383,9 +442,9 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
         colors = ['red' if abs(i) > 3 else 'blue' for i in df.loc[start:end, 'Baseline']]
 
     if 'Baseline' in df.columns and not show_residuals and triggered != 'dropdown-dataset':
-        fig_residual.add_scatter(x=df.loc[start:end, 'Unnamed: 0'], y=df.loc[start:end, 'Magnetic_Field_Ambient'],
+        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'], y=df.reset_index().loc[start:end, 'Magnetic_Field_Ambient'],
                                  mode='lines', name='Ambient Smoothing')
-        fig_residual.add_scatter(x=df.loc[start:end, 'Unnamed: 0'], y=df.loc[start:end, 'Magnetic_Field_Smoothed'],
+        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'], y=df.reset_index().loc[start:end, 'Magnetic_Field_Smoothed'],
                                  mode='lines', name='Observed Smoothing')
 
     fig_residual.data[0].update(mode='lines+markers')
@@ -399,7 +458,7 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
 
     return dcc.Graph(id='map_plot', figure=fig, style={'width': '100%'}), \
         dcc.Graph(id='grap2', figure=fig_residual, style={'width': '100%'}), "show-div", display_residuals_div, \
-        "show-div"
+        "show-div", min_mag_ret, max_mag_ret
 
 
 clientside_callback(
@@ -516,6 +575,10 @@ def get_or_download_dataframe(session_store, dataset_id, start_idx=None, end_idx
             DatasetService.update_dataset(dataset_id=dataset.id,
                                           session_store=session_store,
                                           dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
+
+        if 'Magnetic_Field_Corrected' in ret_df.columns:
+            ret_df['Magnetic_Field'] = ret_df['Magnetic_Field_Corrected']
+
         return ret_df
 
     download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
@@ -549,6 +612,9 @@ def get_or_download_dataframe(session_store, dataset_id, start_idx=None, end_idx
                                       session_store=session_store,
                                       dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
+    if 'Magnetic_Field_Corrected' in ret_df.columns:
+        ret_df['Magnetic_Field'] = ret_df['Magnetic_Field_Corrected']
+
     return ret_df
 
 
@@ -579,4 +645,25 @@ def get_residual_scatter_plot(session_store, col_to_plot):
 
     dcc.Graph(id='map_plot', figure=fig_mapbox, style={'width': '100%'})
 
-    return fig_residual, fig_mapbox
+    return df, fig_residual, fig_mapbox
+
+
+clientside_callback(
+    """
+    function(min_val, max_val) {
+        if ( isNaN(min_val) | isNaN(max_val) | min_val === "" | max_val === "" ) {
+            return true;
+        } else {
+            if (parseFloat(min_val) > parseFloat(max_val)) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+    """,
+    Output('clip-button', 'disabled'),
+    Input('clip-min', 'value'),
+    Input('clip-max', 'value'),
+    prevent_initial_call=True
+)

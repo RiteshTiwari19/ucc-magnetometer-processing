@@ -134,7 +134,7 @@ def get_existing_workspaces(workspaces=None):
             ])
         ], className="card text-white card border-none mb-3",
             style={'minWidth': '30%', 'width': '30%', 'display': 'inline-block', 'margin': '10px'},
-            id=f'project-container-div', class_name='zoom')
+            id=f'project-container-div-{idx}', class_name='zoom')
 
         cards.append(card)
     return cards

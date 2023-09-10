@@ -713,10 +713,12 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
         if triggered['action'] == 'next':
 
             if session_store[AppConfig.DIURNAL_COMPUTED]:
+                obs_ids = ';'.join(session_store[AppConfig.OBS_DATA_SELECTED])
+
                 durn_file_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
                                               session_store[AppIDAuthProvider.APPID_USER_NAME],
                                               "processed",
-                                              f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv')
+                                              f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_{obs_ids}_durn.csv')
 
                 new_dataset_id = str(uuid.uuid4())
 

@@ -36,9 +36,11 @@ class ResidualService:
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
     def calculate_diurnal_correction(cls, df_surf: pd.DataFrame, df_obs: pd.DataFrame, session_store):
 
+        obs_ids = ';'.join(session_store[AppConfig.OBS_DATA_SELECTED])
+
         extracted_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
                      session_store[AppIDAuthProvider.APPID_USER_NAME], "processed",
-                     f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv')
+                     f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_{obs_ids}_durn.csv')
 
         if os.path.exists(extracted_path):
             return pd.read_csv(extracted_path)
