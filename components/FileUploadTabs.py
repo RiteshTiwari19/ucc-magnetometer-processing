@@ -3,6 +3,7 @@ import os
 import shutil
 import threading
 import time
+import uuid
 from zipfile import ZipFile
 
 import dash
@@ -18,6 +19,7 @@ from dask.distributed import Client, LocalCluster
 from flask import session
 
 from Celery import background_callback_manager
+from FlaskCache import cache
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
 from api.dto import CreateNewDatasetDTO, CreateDatasetDTO
@@ -296,7 +298,7 @@ def get_review_and_finalize_content(data_path=None,
 
 
 def save_and_validate_survey_data(set_progress, session_store,
-                                  dataset_type_name, data_path, dataset_name, lat_long_switch, latitude, longitude,
+                                  dataset_type_name, data_path, dataset_name, new_dataset_id, lat_long_switch, latitude, longitude,
                                   easting_northing_switch, easting,
                                   northing, zone, depth_altitude_switch, depth, altitude,
                                   depth_regex, alt_regex, total_field, datetime):
@@ -368,13 +370,9 @@ def save_and_validate_survey_data(set_progress, session_store,
                 os.mkdir(save_path)
             df.to_csv(f'{save_path}\\{dataset_name}.csv')
 
-            uploader_thread = threading.Thread(
-                target=BlobConnector.upload_blob, kwargs={
-                    'blob_name': f'{dataset_name}.csv',
-                    'user_id': f'{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}',
-                    'local_file_path': f'{save_path}\\{dataset_name}.csv'
-                })
-            uploader_thread.start()
+            BlobConnector.upload_blob(blob_name=f'{new_dataset_id}.csv',
+                                      user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
+                                      local_file_path=f'{save_path}\\{dataset_name}.csv')
 
             return f'{save_path}\\{dataset_name}.csv', None
         else:
@@ -385,6 +383,7 @@ def save_and_validate_observatory_data(set_progress,
                                        session_store,
                                        dataset_type_name,
                                        dataset_name,
+                                       new_dataset_id,
                                        data_path,
                                        observatory_data_switch,
                                        total_field, bx, by, bz, datetime, datetime_xyz):
@@ -482,7 +481,7 @@ def save_and_validate_observatory_data(set_progress,
 
             uploader_thread = threading.Thread(
                 target=BlobConnector.upload_blob, kwargs={
-                    'blob_name': f'{dataset_name}.csv',
+                    'blob_name': f'{new_dataset_id}.csv',
                     'user_id': f'{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}',
                     'local_file_path': f'{save_path}\\{dataset_name}.csv'
                 })
@@ -530,6 +529,7 @@ def update(set_progress, back, next_, current, session_store,
         data_content = no_update
         review_and_finalize_content = no_update
         if current == 0:
+            time.sleep(1)
             progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Loading; Reading Dataset!"
             set_progress(NotificationProvider.notify(progress_message, action='show', notification_id='c0'))
             data_content = get_upload_data_content(session_store,
@@ -546,6 +546,7 @@ def update(set_progress, back, next_, current, session_store,
                                                                           dataset_type_id=dataset_id)
 
             saved_data_path, errors = "", []
+            new_dataset_id = str(uuid.uuid4())
 
             if dataset_type_name.name == 'SURVEY_DATA':
                 time.sleep(2)
@@ -564,6 +565,7 @@ def update(set_progress, back, next_, current, session_store,
                     dataset_type_name=dataset_type_name.name,
                     data_path=data_path,
                     dataset_name=dataset_name,
+                    new_dataset_id=new_dataset_id,
                     lat_long_switch=element_values['lat-long'],
                     latitude=element_values['latitude'],
                     longitude=element_values['longitude'],
@@ -595,6 +597,7 @@ def update(set_progress, back, next_, current, session_store,
                     session_store,
                     dataset_name=session_store[AppIDAuthProvider.DATASET_NAME],
                     dataset_type_name=dataset_type_name.name,
+                    new_dataset_id=new_dataset_id,
                     data_path=data_path,
                     observatory_data_switch=element_values['mag_directional'],
                     total_field=element_values['magentic_field_obs'],
@@ -613,20 +616,15 @@ def update(set_progress, back, next_, current, session_store,
             new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO()
             dataset_inner: CreateDatasetDTO = CreateDatasetDTO()
 
+            dataset_inner.tags = {'state': 'DETACHED'}
             dataset_inner.name = dataset_name
             dataset_inner.dataset_type_id = dataset_id
-            dataset_inner.path = f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{dataset_name}.csv"
+            dataset_inner.id = new_dataset_id
+            dataset_inner.path = f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv"
 
             new_dataset.dataset = dataset_inner
 
             DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
-
-            # InMermoryDataService.DatasetsService.datasets \
-            #     .append(InMermoryDataService.Dataset(name=dataset_name,
-            #                                          path=saved_data_path,
-            #                                          dataset_type=InMermoryDataService.DatasetsService \
-            #                                          .get_dataset_type_by_name(dataset_type_name.name),
-            #                                          projects=[]))
 
             if dataset_type_name.name == 'SURVEY_DATA':
                 final_progress_message = f"{Consts.Consts.FINISHED_DISPLAY_STATE};Done;Generated survey region plot!"

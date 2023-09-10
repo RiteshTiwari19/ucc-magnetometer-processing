@@ -1,3 +1,4 @@
+import uuid
 from typing import List
 
 import requests
@@ -5,7 +6,10 @@ from pydantic.tools import parse_obj_as
 
 import AppConfig
 from FlaskCache import cache
-from api.dto import CreateProjectDTO, ProjectsOutput, UpdateProjectTagsDTO
+from api.DatasetService import DatasetService
+from api.dto import CreateProjectDTO, ProjectsOutput, UpdateProjectTagsDTO, CreateNewDatasetDTO, CreateDatasetDTO
+from auth import AppIDAuthProvider
+from utils.AzureContainerHelper import BlobConnector
 
 
 class ProjectService:
@@ -85,19 +89,44 @@ class ProjectService:
         return projects
 
     @classmethod
-    def link_dataset_to_project(cls, project_id, dataset_id, session_store):
+    def link_dataset_to_project(cls, project_id, dataset_id,
+                                session_store,
+                                link_state='LINKED'):
         bearer_token = session_store['APPID_USER_TOKEN']
         headers = {'Authorization': f"Bearer {bearer_token}"}
 
-        add_dataset_to_project_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{project_id}/datasets/{dataset_id}"
+        active_project = ProjectService.get_project_by_id(project_id=project_id, session=session_store)
+        for dataset in active_project.datasets:
+            if dataset.dataset.parent_dataset_id == dataset_id:
+                return "NO_UPDATE"
 
-        datasets_response = requests.post(add_dataset_to_project_endpoint, headers=headers, params={
-            'project_dataset_state': 'INIT'
-        })
+        existing_dataset = DatasetService.get_dataset_by_id(dataset_id, session_store=session_store)
+        azr_path = existing_dataset.path
 
-        if datasets_response.status_code == 409:
-            return "NO_UPDATE"
-        else:
-            datasets_response.raise_for_status()
+        new_dataset_id = str(uuid.uuid4())
+        new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+            dataset=CreateDatasetDTO(
+                parent_dataset_id=dataset_id,
+                id=new_dataset_id,
+                name=existing_dataset.name,
+                dataset_type_id=existing_dataset.dataset_type.id,
+                project_id=project_id,
+                path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                tags={'state': link_state}
+            ),
+            project_dataset_state=link_state
+        )
+
+        try:
+            created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+            BlobConnector.copy_blob_between_containers(source_blob_path=azr_path,
+                                                       target_blob_path=created_dataset.path,
+                                                       copy_from_container=AppConfig.DATASETS_CONTAINER,
+                                                       copy_to_container=AppConfig.DATASETS_CONTAINER)
+            cache.delete_memoized(DatasetService.get_dataset_by_id)
             cache.delete_memoized(ProjectService.get_project_by_id)
             return "UPDATED"
+        except Exception as e:
+            return "NO_UPDATE"
+
+

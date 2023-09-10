@@ -27,6 +27,9 @@ def get_color_based_on_dataset_type(dataset_type_name):
 
 
 def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None):
+    if not datasets_filter:
+        datasets_filter: DatasetFilterDTO = DatasetFilterDTO()
+        datasets_filter.states = 'DETACHED'
 
     dataset_papers = [html.Div(id='choose-project-link-modal'),
                       dmc.Group([
@@ -42,6 +45,15 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
                                   dcc.Dropdown(
                                       id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
                                           'sub': 'dataset-type-filter'})
+                              ], style={'width': '100%'}),
+                              html.Div([
+                                  "Dataset State",
+                                  dcc.Dropdown(
+                                      options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED', 'INTERPOLATED'],
+                                      value='DETACHED',
+                                      multi=True,
+                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                                          'sub': 'dataset-state-filter'})
                               ], style={'width': '100%'}),
 
                               dmc.TextInput(label="Dataset Name:", placeholder="Provide a dataset name to filter",
@@ -229,7 +241,6 @@ def cta_handler(n_clicks, project_id, session_store):
 
     if action == 'delete':
         DatasetService.delete_dataset(dataset_id=dataset_id, session=session_store)
-        cache.delete_memoized(DatasetService.get_datasets)
         return "existing_datasets", Toast.get_toast("Notification", 'Dataset deleted successfully', icon='info')
     if action == 'link_to_project':
         status = ProjectsService.ProjectService \
@@ -339,16 +350,25 @@ def update_options(search_value, session_store):
     Output('datasets_stack', 'children'),
     Input('filter-datasets-button', 'n_clicks'),
     State('dataset-name-filter', 'value'),
-    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'project-filter'}, 'value'),
-    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'dataset-type-filter'}, 'value'),
+    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'project-filter'},
+          'value'),
+    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'dataset-type-filter'},
+          'value'),
+    State({'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown', 'sub': 'dataset-state-filter'},
+          'value'),
     State('local', 'data'),
     prevent_initial_update=True
 )
-def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_query, session_store):
+def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_query, dataset_state_query,
+                    session_store):
     if not n_clicks:
         raise PreventUpdate
     else:
+        dataset_state_query = dataset_state_query or ['DETACHED']
         dataset_filter_dto: DatasetFilterDTO = DatasetFilterDTO()
+
+        dataset_filter_dto.states = ';'.join(dataset_state_query)
+
         if dataset_name_query:
             dataset_filter_dto.dataset_name = dataset_name_query
 

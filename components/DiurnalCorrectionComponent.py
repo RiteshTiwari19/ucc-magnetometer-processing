@@ -18,7 +18,7 @@ from FlaskCache import cache
 from api.DatasetService import DatasetService
 from api.ProjectsService import ProjectService
 from api.ResidualService import ResidualService
-from api.dto import ProjectsOutput, UpdateProjectTagsDTO, DatasetResponse
+from api.dto import ProjectsOutput, UpdateProjectTagsDTO, DatasetResponse, DatasetUpdateDTO
 from auth import AppIDAuthProvider
 from components import ResidualComponent, MapboxScatterPlot
 from utils.ExportUtils import ExportUtils
@@ -194,25 +194,28 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
 
     dataset: DatasetResponse = [d.dataset for d in project.datasets if d.dataset.id == dataset_id][0]
 
-    if project.settings and 'local_path' in project.settings and dataset_id in project.settings['local_path']:
+    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path']:
         if start_idx is not None and end_idx is not None:
 
-            ret_df = pd.read_csv(project.settings['local_path'][dataset.id],
+            ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id],
                                  skiprows=lambda x: x > end_idx or x < start_idx)
         else:
-            ret_df = pd.read_csv(project.settings['local_path'][dataset.id])
+            ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id])
         return ret_df
 
     download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
                                                             dataset_id=dataset.id,
                                                             session=session_store)
 
-    project_settings = project.settings or {}
-    project_settings['local_path'][dataset.id] = download_path
+    dataset_tags = dataset.tags or {}
+    if 'local_path' not in dataset.tags:
+        dataset_tags['local_path'] = {f'{dataset.id}': download_path}
+    else:
+        dataset_tags['local_path'][dataset.id] = download_path
 
-    ProjectService.update_project_tags(project_tags=UpdateProjectTagsDTO(tags=project.tags, settings=project_settings),
-                                       session=session_store,
-                                       project_id=project.id)
+    DatasetService.update_dataset(dataset_id=dataset.id,
+                                  session_store=session_store,
+                                  dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
     if start_idx is not None and end_idx is not None:
         ret_df = pd.read_csv(download_path, skiprows=lambda x: x > end_idx or x < start_idx)
@@ -316,7 +319,6 @@ def update_tags(survey_data, observatory_data, session_store):
 
             tags = ResidualComponent.get_page_tags(active_project, session_store=session_store)
 
-
             hide_div = True if observatory_data and survey_data else False
 
             if hide_div:
@@ -334,9 +336,6 @@ def update_tags(survey_data, observatory_data, session_store):
             for data in observatory_data:
                 observatory_datasets.append(DatasetService.get_dataset_by_id(dataset_id=data,
                                                                              session_store=session_store))
-
-            # observatory_data = DatasetService.get_dataset_by_id(dataset_id=observatory_data,
-            #                                                     session_store=session_store)
 
             update_tags_dto = UpdateProjectTagsDTO(tags={
                 'Stage': 'Diurnal Correction',

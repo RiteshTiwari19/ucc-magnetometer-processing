@@ -49,6 +49,10 @@ class BlobConnector:
         # remove_blob = cls.blob_service_client.get_blob_client(copy_from_container, source_blob_path)
         # remove_blob.delete_blob()
 
+    @classmethod
+    def delete_blob(cls, container_name, blob_path):
+        blob_client = cls.blob_service_client.get_blob_client(container=container_name, blob=blob_path)
+        blob_client.delete_blob()
 
 if __name__ == "__main__":
     # dfl = os.getcwd() + f"\\downloaded.csv" blob_name = "datasets/a02c649d-587a-4b7e-b1c3-1545771040e6/18_05.csv"

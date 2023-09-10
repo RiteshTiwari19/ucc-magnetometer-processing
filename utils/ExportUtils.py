@@ -24,9 +24,8 @@ class ExportUtils:
     def download_data_if_not_exists(cls, dataset_path, dataset_id, session):
         dataset_name = dataset_path.split('/')[-1]
         dataset_format = dataset_name.split('.')[-1]
-        # file_path = f"{AppConfig.PROJECT_ROOT}\\data\\{session[AppIDAuthProvider.APPID_USER_NAME]}\\processed\\{dataset_name}"
         file_dir = os.path.join(AppConfig.PROJECT_ROOT, 'data', session[AppIDAuthProvider.APPID_USER_NAME],
-                                 'downloads')
+                                'downloads')
 
         file_path = os.path.join(file_dir, f'{dataset_id}.{dataset_format}')
 

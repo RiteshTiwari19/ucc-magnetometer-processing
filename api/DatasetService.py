@@ -7,6 +7,7 @@ import AppConfig
 from FlaskCache import cache
 from api.dto import CreateNewDatasetDTO, DatasetsOutput, \
     DatasetFilterDTO, DatasetsWithDatasetTypeDTO
+from utils.AzureContainerHelper import BlobConnector
 
 
 class DatasetService:
@@ -27,7 +28,6 @@ class DatasetService:
         return created_dataset
 
     @classmethod
-    @cache.memoize(timeout=500000, args_to_ignore=['session'])
     def get_datasets(cls, session, datasets_filter: DatasetFilterDTO | None = None) -> List[DatasetsWithDatasetTypeDTO]:
         bearer_token = session['APPID_USER_TOKEN']
         headers = {'Authorization': f"Bearer {bearer_token}"}
@@ -43,6 +43,8 @@ class DatasetService:
                 params['dataset_type_id'] = datasets_filter.dataset_type_id
             if datasets_filter.project_id:
                 params['project_id'] = datasets_filter.project_id
+            if datasets_filter.states:
+                params['dataset_state_query'] = datasets_filter.states
 
         get_datasets_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}"
 
@@ -57,6 +59,9 @@ class DatasetService:
     def delete_dataset(cls, dataset_id, session):
         bearer_token = session['APPID_USER_TOKEN']
         headers = {'Authorization': f"Bearer {bearer_token}"}
+
+        dataset_to_delete = DatasetService.get_dataset_by_id(session_store=session, dataset_id=dataset_id)
+        BlobConnector.delete_blob(container_name=AppConfig.DATASETS_CONTAINER, blob_path=dataset_to_delete.path)
 
         delete_dataset_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{dataset_id}"
         delete_dataset_response = requests.delete(delete_dataset_endpoint, headers=headers)
@@ -85,6 +90,22 @@ class DatasetService:
         dataset = parse_obj_as(DatasetsWithDatasetTypeDTO, dataset)
         return dataset
 
+    @classmethod
+    def update_dataset(cls, dataset_id, session_store, dataset_update_dto) -> DatasetsWithDatasetTypeDTO:
 
+        bearer_token = session_store['APPID_USER_TOKEN']
+        headers = {'Authorization': f"Bearer {bearer_token}"}
 
+        print('Update Dataset IS GETTING CALLED!')
 
+        dataset_update_endpoint = f"{AppConfig.API_BASE_URL}/{cls.URL_PREFIX}/{dataset_id}"
+
+        dataset_response = requests.put(dataset_update_endpoint, json=dataset_update_dto.dict(),headers=headers)
+        dataset_response.raise_for_status()
+        updated_dataset = dataset_response.json()
+
+        updated_dataset = parse_obj_as(DatasetsWithDatasetTypeDTO, updated_dataset)
+
+        cache.delete_memoized(DatasetService.get_dataset_by_id)
+
+        return updated_dataset

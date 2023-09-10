@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 from datetime import datetime
@@ -14,6 +14,8 @@ class DatasetResponse(BaseModel):
     id: str | None
     name: str | None
     path: str | None
+    parent_dataset_id: str | None
+    tags: dict | None
     created_at: datetime | None
     dataset_type: DatasetTypesResponse | None
 
@@ -45,10 +47,13 @@ class UserResponseDTO(UserResponse):
 
 
 class CreateDatasetDTO(BaseModel):
+    id: str | None
+    tags: dict | None
     name: str | None
     path: str | None
     dataset_type_id: str | None
     project_id: str | None
+    parent_dataset_id: str | None
 
 
 class CreateProjectDTO(BaseModel):
@@ -93,7 +98,7 @@ class UpdateProjectTagsDTO(BaseModel):
 
 class ProjectsOutput(BaseModel):
     class ProjectDatasetInputDAO(BaseModel):
-        project_dataset_state = "INIT"
+        project_dataset_state = "LINKED"
 
     class ProjectDatasetDTO(ProjectDatasetInputDAO):
         dataset: DatasetResponse
@@ -117,6 +122,9 @@ class CreateNewDatasetDTO(BaseModel):
 
 
 class DatasetInput(BaseModel):
+    parent_dataset_id: str | None
+    tags: dict | None
+    snap: str | None
     name: str | None
     path: str | None
     created_at: datetime | None
@@ -125,7 +133,7 @@ class DatasetInput(BaseModel):
 
 class DatasetsOutput(DatasetInput):
     class ProjectDatasetInputDAO(BaseModel):
-        project_dataset_state: str | None = "INIT"
+        project_dataset_state: str | None = "LINKED"
 
     class DatasetProjectDTO(ProjectDatasetInputDAO):
         project: ProjectDTO | None
@@ -135,6 +143,7 @@ class DatasetsOutput(DatasetInput):
 
 
 class DatasetFilterDTO(BaseModel):
+    states: str | None
     project_id: str | None
     dataset_name: str | None
     dataset_type_id: str | None
@@ -148,3 +157,9 @@ class DatasetType(BaseModel):
 
 class DatasetsWithDatasetTypeDTO(DatasetsOutput):
     dataset_type: DatasetType | None
+
+
+class DatasetUpdateDTO(BaseModel):
+    tags: Optional[dict] = None
+    name: str | None
+    path: str | None
