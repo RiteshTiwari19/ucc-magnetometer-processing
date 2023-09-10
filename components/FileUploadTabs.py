@@ -334,6 +334,7 @@ def save_and_validate_survey_data(set_progress, session_store,
     if len(err_message) > 0:
         return None, err_message
     else:
+        observation_dates = None
         try:
             col_map_keys = list(col_map.keys())
             df = pd.read_csv(data_path)[col_map_keys]
@@ -347,6 +348,8 @@ def save_and_validate_survey_data(set_progress, session_store,
             df = df[df['Easting'] != '*']
             df['Magnetic_Field'] = df['Magnetic_Field'].astype(float)
             df['Datetime'] = pd.to_datetime(df['Datetime'], format="mixed")
+
+            observation_dates = f'{df["Datetime"].min().strftime("%m/%d/%Y")} - {df["Datetime"].max().strftime("%m/%d/%Y")}'
 
             if latitude in col_map_keys:
                 df['Latitude'] = df['Latitude'].astype(float)
@@ -374,9 +377,9 @@ def save_and_validate_survey_data(set_progress, session_store,
                                       user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
                                       local_file_path=f'{save_path}\\{dataset_name}.csv')
 
-            return f'{save_path}\\{dataset_name}.csv', None
+            return f'{save_path}\\{dataset_name}.csv', observation_dates
         else:
-            return None, err_message
+            return None, err_message, None
 
 
 def save_and_validate_observatory_data(set_progress,
@@ -425,6 +428,7 @@ def save_and_validate_observatory_data(set_progress,
     if len(err_message) > 0:
         return None, err_message
     else:
+        observation_dates = None
         try:
 
             col_map_keys = list(col_map.keys())
@@ -468,6 +472,8 @@ def save_and_validate_observatory_data(set_progress,
             progress_message = f"{Consts.Consts.LOADING_DISPLAY_STATE};Saving;Saving Observatory Data!"
             set_progress(
                 NotificationProvider.notify(progress_message, action="update", notification_id='zip-processor'))
+            observation_dates = '{} - {}'.format(df['Datetime'].min().compute().strftime("%m/%d/%Y"),
+                                                 df['Datetime'].max().compute().strftime("%m/%d/%Y"))
             df.to_csv(f'{save_path}\\{dataset_name}.csv', single_file=True, compute=True)
             os.remove(data_path)
             client.close()
@@ -487,9 +493,9 @@ def save_and_validate_observatory_data(set_progress,
                 })
             uploader_thread.start()
 
-            return f'{save_path}\\{dataset_name}.csv', None
+            return f'{save_path}\\{dataset_name}.csv', None, observation_dates
         else:
-            return None, err_message
+            return None, err_message, None
 
 
 @callback(
@@ -541,7 +547,6 @@ def update(set_progress, back, next_, current, session_store,
         elif current == 1:
             dataset_id = session_store[AppIDAuthProvider.DATASET_TYPE_SELECTED]
             dataset_name = session_store[AppIDAuthProvider.DATASET_NAME]
-            # dataset_type_name = InMermoryDataService.DatasetsService.get_dataset_type_by_id(dataset_id)
             dataset_type_name = DatasetTypeService.get_dataset_type_by_id(session=session_store,
                                                                           dataset_type_id=dataset_id)
 
@@ -559,7 +564,7 @@ def update(set_progress, back, next_, current, session_store,
                                'magentic_field', 'datetime']
                 element_values = Utils.Utils.get_element_states(ctx.args_grouping, element_ids)
 
-                saved_data_path, errors = save_and_validate_survey_data(
+                saved_data_path, errors, obs_dates = save_and_validate_survey_data(
                     set_progress,
                     session_store,
                     dataset_type_name=dataset_type_name.name,
@@ -592,7 +597,7 @@ def update(set_progress, back, next_, current, session_store,
                                'datetime-xyz']
                 element_values = Utils.Utils.get_element_states(ctx.args_grouping, element_ids)
 
-                saved_data_path, errors = save_and_validate_observatory_data(
+                saved_data_path, errors, obs_dates = save_and_validate_observatory_data(
                     set_progress,
                     session_store,
                     dataset_name=session_store[AppIDAuthProvider.DATASET_NAME],
@@ -616,7 +621,7 @@ def update(set_progress, back, next_, current, session_store,
             new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO()
             dataset_inner: CreateDatasetDTO = CreateDatasetDTO()
 
-            dataset_inner.tags = {'state': 'DETACHED'}
+            dataset_inner.tags = {'state': 'DETACHED', 'Observation Dates': obs_dates}
             dataset_inner.name = dataset_name
             dataset_inner.dataset_type_id = dataset_id
             dataset_inner.id = new_dataset_id

@@ -235,8 +235,8 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
 
     ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
 
-    min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y, %H:%M:%S")
-    max_date = ret_df['Datetime'].max("%m/%d/%Y, %H:%M:%S")
+    min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
+    max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
 
     dataset_tags = updated_dataset.tags or {}
     dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
