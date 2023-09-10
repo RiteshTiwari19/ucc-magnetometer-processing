@@ -80,6 +80,8 @@ class ResidualService:
 
         df_surf['Magnetic_Field_Corrected'] = df_surf['Magnetic_Field'] - df_obs['Magnetic_Field_Smoothed'].abs()
 
+        df_surf['Magnetic_Field_Corrected'] = df_surf['Magnetic_Field_Corrected'].fillna(df_surf['Magnetic_Field'])
+
         df_to_return = df_surf.dropna(subset=['Magnetic_Field_Corrected']).reset_index()
         df_to_return.to_csv(extracted_path)
 

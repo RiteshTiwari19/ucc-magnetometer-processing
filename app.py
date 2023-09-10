@@ -150,7 +150,5 @@ ModalComponent.toggle_upload_dataset_modal(app)
 
 Toast.open_toast(app)
 
-ResidualComponent.hide_dataset_selection_div_outer(app)
-
 if __name__ == "__main__":
     app.run_server(host="0.0.0.0", debug=True)

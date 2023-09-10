@@ -178,7 +178,7 @@ def switch_workspace_tab_outer(app: dash.Dash, du):
 
         elif at == "mag_data":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, no_update, ResidualComponent.get_mag_data_page(session_store, du), no_update]
+            return [no_update, no_update, ResidualComponent.get_mag_data_page(session, du), no_update]
 
         elif at == "mag_data_interpolation":
             visibility_patch['visibility'] = 'hidden'

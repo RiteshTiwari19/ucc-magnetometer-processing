@@ -32,7 +32,7 @@ def get_datasets(typ, session_store):
     project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
     project: ProjectsOutput = ProjectService.get_project_by_id(project_id=project_id, session=session_store)
     return [{'label': o.dataset.name, 'value': o.dataset.id} for o in project.datasets if
-            o.dataset.dataset_type.name == typ]
+            o.dataset.dataset_type.name == typ and o.dataset.tags['state'] == 'LINKED' if 'state' in o.dataset.tags]
 
 
 @cache.memoize(args_to_ignore=['session_store'])
@@ -76,7 +76,8 @@ def get_survey_plot(session_store, col_to_plot, dataset_id):
                  ),
         html.Br(),
         dmc.Center(
-            dmc.Button("Remove Diurnal Variation", variant="filled", id={'id': 'perform-diurnal-correction', 'action': 'calc_durn'}),
+            dmc.Button("Remove Diurnal Variation", variant="filled",
+                       id={'id': 'perform-diurnal-correction', 'action': 'calc_durn'}),
         ),
         dmc.Group(
             [
@@ -210,14 +211,16 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
 
         ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
 
-        min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
-        max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
+        if 'Observation Dates' not in dataset.tags:
 
-        dataset_tags = dataset.tags or {}
-        dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
-        DatasetService.update_dataset(dataset_id=dataset.id,
-                                      session_store=session_store,
-                                      dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
+            min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
+            max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
+
+            dataset_tags = dataset.tags or {}
+            dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
+            DatasetService.update_dataset(dataset_id=dataset.id,
+                                          session_store=session_store,
+                                          dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
         return ret_df
 
     download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
@@ -238,17 +241,17 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         ret_df = pd.read_csv(download_path, skiprows=lambda x: x > end_idx or x < start_idx)
     else:
         ret_df = pd.read_csv(download_path)
+        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
 
-    ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
+    if 'Observation Dates' not in updated_dataset.tags:
+        min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
+        max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
 
-    min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
-    max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
-
-    dataset_tags = updated_dataset.tags or {}
-    dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
-    DatasetService.update_dataset(dataset_id=dataset.id,
-                                  session_store=session_store,
-                                  dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
+        dataset_tags = updated_dataset.tags or {}
+        dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
+        DatasetService.update_dataset(dataset_id=dataset.id,
+                                      session_store=session_store,
+                                      dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
     return ret_df
 
@@ -495,7 +498,8 @@ def diurnal_correction_cta(
                                                       project_id=session_store[
                                                           AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
 
-    if type(triggered) is not str and triggered['id'] == "perform-diurnal-correction" and diurnal_correction is not None:
+    if type(triggered) is not str and triggered[
+        'id'] == "perform-diurnal-correction" and diurnal_correction is not None:
 
         surf_df_diurnal_computed = perform_diurnal_correction(active_project, session_store)
         disable_next = False
@@ -627,7 +631,7 @@ def generate_line_plot(surf_df_diurnal_computed):
     return fig
 
 
-@cache.memoize(timeout=5000)
+@cache.memoize(timeout=50000)
 def perform_diurnal_correction(active_project, session_store):
     obs_dfs = []
     d_ids = session_store[AppConfig.OBS_DATA_SELECTED]
@@ -664,9 +668,9 @@ def manage_next_skip_state(survey_data, observatory_data, session_store):
         skip_state, next_state = False, True
 
         diurnal_computed = os.path.exists(os.path.join(AppConfig.PROJECT_ROOT, "data",
-                                              session_store[AppIDAuthProvider.APPID_USER_NAME],
-                                              "processed",
-                                              f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv'))
+                                                       session_store[AppIDAuthProvider.APPID_USER_NAME],
+                                                       "processed",
+                                                       f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv'))
 
         if not survey_data:
             return True, True
@@ -683,7 +687,7 @@ def manage_next_skip_state(survey_data, observatory_data, session_store):
 
 
 @callback(
-    Output("dummy", "children"),
+    Output("tabs", "active_tab", allow_duplicate=True),
     Input({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
            'prev': 'None', 'action': 'skip'}, "n_clicks"),
     Input({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
@@ -759,9 +763,9 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                     cache.delete_memoized(ProjectService.get_project_by_id)
 
                     session[AppConfig.WORKING_DATASET] = new_dataset_id
-                    return no_update
+                    return "mag-data"
                 except:
                     pass
         else:
             session[AppConfig.WORKING_DATASET] = session_store[AppConfig.SURVEY_DATA_SELECTED]
-            return no_update
+            return "mag-data"
