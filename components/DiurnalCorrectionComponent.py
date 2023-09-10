@@ -104,7 +104,7 @@ def get_survey_plot(session_store, col_to_plot, dataset_id):
         id={'type': 'plotly', 'location': 'residual', 'idx': 'residuals-plot-durn'}
     ),
 
-    return ret_div
+    return f'{df["Datetime"].min().strftime("%m/%d/%Y")} - {df["Datetime"].max().strftime("%m/%d/%Y")}', ret_div
 
 
 def get_diurnal_correction_page(session_store):
@@ -201,6 +201,17 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
                                  skiprows=lambda x: x > end_idx or x < start_idx)
         else:
             ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id])
+
+        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
+
+        min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
+        max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
+
+        dataset_tags = dataset.tags or {}
+        dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
+        DatasetService.update_dataset(dataset_id=dataset.id,
+                                      session_store=session_store,
+                                      dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
         return ret_df
 
     download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
@@ -213,7 +224,7 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
     else:
         dataset_tags['local_path'][dataset.id] = download_path
 
-    DatasetService.update_dataset(dataset_id=dataset.id,
+    updated_dataset = DatasetService.update_dataset(dataset_id=dataset.id,
                                   session_store=session_store,
                                   dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
@@ -221,6 +232,18 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         ret_df = pd.read_csv(download_path, skiprows=lambda x: x > end_idx or x < start_idx)
     else:
         ret_df = pd.read_csv(download_path)
+
+    ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
+
+    min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y, %H:%M:%S")
+    max_date = ret_df['Datetime'].max("%m/%d/%Y, %H:%M:%S")
+
+    dataset_tags = updated_dataset.tags or {}
+    dataset_tags['Observation Dates'] = f'{min_date} - {max_date}'
+    DatasetService.update_dataset(dataset_id=dataset.id,
+                                  session_store=session_store,
+                                  dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
+
     return ret_df
 
 
@@ -308,9 +331,14 @@ def update_tags(survey_data, observatory_data, session_store):
         if triggered == 'select-survey-data':
             survey_data = DatasetService.get_dataset_by_id(dataset_id=survey_data, session_store=session_store)
 
+
+            survey_dates, survey_plot = get_survey_plot(session_store=session_store, col_to_plot='Magnetic_Field',
+                                    dataset_id=survey_data.id)
+
             update_tags_dto = UpdateProjectTagsDTO(tags={
                 'Stage': 'Diurnal Correction',
-                'Survey': survey_data.name
+                'Survey': survey_data.name,
+                'Survey Duration': survey_dates
             })
 
             active_project = update_project_tags(session_store, update_tags_dto)
@@ -322,13 +350,10 @@ def update_tags(survey_data, observatory_data, session_store):
             hide_div = True if observatory_data and survey_data else False
 
             if hide_div:
-                ret_val = tags, "hide-div-simple", "hide-div-simple", no_update, \
-                    get_survey_plot(session_store=session_store, col_to_plot='Magnetic_Field',
-                                    dataset_id=survey_data.id)
+                ret_val = tags, "hide-div-simple", "hide-div-simple", no_update, survey_plot
+
             else:
-                ret_val = tags, no_update, no_update, no_update, \
-                    get_survey_plot(session_store=session_store, col_to_plot='Magnetic_Field',
-                                    dataset_id=survey_data.id)
+                ret_val = tags, no_update, no_update, no_update, survey_plot
             return ret_val
         else:
 

@@ -49,7 +49,8 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
                               html.Div([
                                   "Dataset State",
                                   dcc.Dropdown(
-                                      options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED', 'INTERPOLATED'],
+                                      options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED',
+                                               'INTERPOLATED'],
                                       value='DETACHED',
                                       multi=True,
                                       id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
@@ -121,7 +122,8 @@ def get_datasets_from_db(datasets_filter, session_store):
                                     dmc.Text('MODIFIED AT', size='xs'),
                                     dmc.Text(dataset.modified_at.strftime("%m/%d/%Y, %H:%M:%S"), color="dimmed",
                                              size='xs')
-                                ])
+                                ]),
+                                dmc.Group(generate_tag_badges(dataset), position='left', spacing='xs')
                             ]),
 
                             dmc.Stack(children=[
@@ -384,3 +386,50 @@ def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_qu
 def file_download_link(dataset, session_store, dtype='csv'):
     location = "/download/{}.{}____{}".format(urlquote(dataset.name), dtype, dataset.path)
     return location
+
+
+def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
+    tag_buttons = []
+    idx = 0
+
+    for key, value in dataset.tags.items():
+        if key == 'state' or key == 'Observation Dates':
+            btn_id = f'dataset-disabled-tag-btn-{idx}'
+
+            btn_variant = 'subtle'
+            btn_color = 'gray'
+
+            btn_to_add = dmc.Group([dmc.Button(
+                [
+                    f"{key.upper()}: ",
+                    dmc.Badge(f"{value}", color="secondary", className="ms-1", variant='gradient',
+                              gradient={"from": "indigo", "to": "cyan"}),
+                ],
+                style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant=btn_variant,
+                color=btn_color,
+                id=btn_id
+            )
+            ])
+
+            idx += 1
+            tag_buttons.append(btn_to_add)
+
+    for project in dataset.projects:
+        btn_id = f'dataset-disabled-tag-btn-{idx}'
+
+        btn_variant = 'subtle'
+        btn_color = 'gray'
+
+        btn_to_add = dmc.Group([dmc.Button(
+            [
+                f"Linked Project: ",
+                dmc.Badge(f"{project.project.name}", color="secondary", className="ms-1", variant='gradient',
+                          gradient={"from": "indigo", "to": "cyan"}),
+            ],
+            style={'display': 'inline-block', 'margin': '10px', 'padding': '5px'}, variant=btn_variant,
+            color=btn_color,
+            id=btn_id
+        )
+        ])
+        tag_buttons.append(btn_to_add)
+    return tag_buttons

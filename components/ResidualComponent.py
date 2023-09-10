@@ -313,10 +313,6 @@ def generate_tag_badges(active_project, session_store):
         else:
             btn_id = f'disabled-tag-btn-{idx}'
 
-        # btn_id = f'disabled-tag-btn-{idx}' if key != 'Survey' else {'type': 'button',
-        #                                                             'subset': 'residual-dataset-page',
-        #                                                             'idx': 'select-dataset',
-        #                                                             'action': 'select-dataset'}
         btn_variant = 'subtle' if key not in ['Survey', 'Observatory'] else 'outline'
         btn_color = 'gray' if key not in ['Survey', 'Observatory'] else 'orange'
 
