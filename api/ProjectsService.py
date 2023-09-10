@@ -92,8 +92,6 @@ class ProjectService:
     def link_dataset_to_project(cls, project_id, dataset_id,
                                 session_store,
                                 link_state='LINKED'):
-        bearer_token = session_store['APPID_USER_TOKEN']
-        headers = {'Authorization': f"Bearer {bearer_token}"}
 
         active_project = ProjectService.get_project_by_id(project_id=project_id, session=session_store)
         for dataset in active_project.datasets:
@@ -102,6 +100,16 @@ class ProjectService:
 
         existing_dataset = DatasetService.get_dataset_by_id(dataset_id, session_store=session_store)
         azr_path = existing_dataset.path
+
+        existing_dataset_tags = existing_dataset.tags
+
+        if 'export_status' in existing_dataset_tags:
+            del existing_dataset_tags['export_status']
+
+        if 'local_path' in existing_dataset_tags:
+            del existing_dataset_tags['local_path']
+
+        existing_dataset_tags['state'] = link_state
 
         new_dataset_id = str(uuid.uuid4())
         new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
@@ -112,7 +120,7 @@ class ProjectService:
                 dataset_type_id=existing_dataset.dataset_type.id,
                 project_id=project_id,
                 path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
-                tags={'state': link_state}
+                tags=existing_dataset_tags
             ),
             project_dataset_state=link_state
         )

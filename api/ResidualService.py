@@ -1,9 +1,12 @@
+import os.path
 import uuid
 
 import numpy as np
 import pandas as pd
 
+import AppConfig
 from FlaskCache import cache
+from auth import AppIDAuthProvider
 
 
 class ResidualService:
@@ -31,8 +34,16 @@ class ResidualService:
 
     @classmethod
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
-    def calculate_diurnal_correction(cls, df_surf: pd.DataFrame, df_obs: pd.DataFrame):
-        print('Calculate Residuals got called')
+    def calculate_diurnal_correction(cls, df_surf: pd.DataFrame, df_obs: pd.DataFrame, session_store):
+
+        extracted_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
+                     session_store[AppIDAuthProvider.APPID_USER_NAME], "processed",
+                     f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv')
+
+        if os.path.exists(extracted_path):
+            return pd.read_csv(extracted_path)
+
+        print('Calculate Diurnal got called')
 
         min_survey_date = df_surf['Datetime'].min()
         max_survey_date = df_surf['Datetime'].max()
@@ -69,4 +80,7 @@ class ResidualService:
 
         df_surf['Magnetic_Field_Corrected'] = df_surf['Magnetic_Field'] - df_obs['Magnetic_Field_Smoothed'].abs()
 
-        return df_surf.dropna(subset=['Magnetic_Field_Corrected']).reset_index()
+        df_to_return = df_surf.dropna(subset=['Magnetic_Field_Corrected']).reset_index()
+        df_to_return.to_csv(extracted_path)
+
+        return df_to_return

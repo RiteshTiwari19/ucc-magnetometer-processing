@@ -1,12 +1,14 @@
 import datetime
+import shutil
 import time
 import os.path
+import uuid
 
 import dash_mantine_components as dmc
 import numpy as np
 import pandas as pd
 import plotly.express as px
-from dash import dcc, Patch, MATCH, ALL
+from dash import dcc, Patch, MATCH, ALL, clientside_callback
 from dash import html, no_update, callback, callback_context, Output, Input, State
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
@@ -18,9 +20,11 @@ from FlaskCache import cache
 from api.DatasetService import DatasetService
 from api.ProjectsService import ProjectService
 from api.ResidualService import ResidualService
-from api.dto import ProjectsOutput, UpdateProjectTagsDTO, DatasetResponse, DatasetUpdateDTO
+from api.dto import ProjectsOutput, UpdateProjectTagsDTO, DatasetResponse, DatasetUpdateDTO, CreateNewDatasetDTO, \
+    CreateDatasetDTO
 from auth import AppIDAuthProvider
 from components import ResidualComponent, MapboxScatterPlot
+from utils.AzureContainerHelper import BlobConnector
 from utils.ExportUtils import ExportUtils
 
 
@@ -72,7 +76,7 @@ def get_survey_plot(session_store, col_to_plot, dataset_id):
                  ),
         html.Br(),
         dmc.Center(
-            dmc.Button("Remove Diurnal Variation", variant="filled", id='perform-diurnal-correction'),
+            dmc.Button("Remove Diurnal Variation", variant="filled", id={'id': 'perform-diurnal-correction', 'action': 'calc_durn'}),
         ),
         dmc.Group(
             [
@@ -119,6 +123,7 @@ def get_diurnal_correction_page(session_store):
         del active_project.tags['Observatory']
 
     diurnal_page = dmc.Stack([
+        html.Div(id='dummy'),
         html.Div(ResidualComponent.get_page_tags(active_project, tags_to_add={
             'Stage': 'Diurnal Correction'
         }, session_store=session_store), id='diurnal-page-tags-div',
@@ -156,10 +161,10 @@ def get_diurnal_correction_page(session_store):
             dmc.Group(children=[
                 dmc.Button('Skip', variant='outline', color='gray',
                            id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
-                               'prev': 'None', 'action': 'skip'}),
+                               'prev': 'None', 'action': 'skip'}, disabled=True),
                 dmc.Button('Next', variant='color', color='green',
                            id={'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
-                               'prev': 'None', 'action': 'next'}),
+                               'prev': 'None', 'action': 'next'}, disabled=True),
             ])
         ],
             className='fix-bottom-right')], align='stretch')
@@ -171,9 +176,10 @@ def get_diurnal_correction_page(session_store):
     Output("local", "data", allow_duplicate=True),
     Input("select-survey-data", "value"),
     Input("select-observatory-data", "value"),
+    State("local", "data"),
     prevent_initial_call=True
 )
-def update_datasets_in_session(survey_data_selected, observatory_data_selected):
+def update_datasets_in_session(survey_data_selected, observatory_data_selected, store):
     if not callback_context.triggered or not (survey_data_selected or observatory_data_selected):
         raise PreventUpdate
     else:
@@ -225,8 +231,8 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         dataset_tags['local_path'][dataset.id] = download_path
 
     updated_dataset = DatasetService.update_dataset(dataset_id=dataset.id,
-                                  session_store=session_store,
-                                  dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
+                                                    session_store=session_store,
+                                                    dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
     if start_idx is not None and end_idx is not None:
         ret_df = pd.read_csv(download_path, skiprows=lambda x: x > end_idx or x < start_idx)
@@ -329,11 +335,12 @@ def update_tags(survey_data, observatory_data, session_store):
     else:
 
         if triggered == 'select-survey-data':
+            cache.delete_memoized(ResidualService.calculate_diurnal_correction)
+            cache.delete_memoized(perform_diurnal_correction)
             survey_data = DatasetService.get_dataset_by_id(dataset_id=survey_data, session_store=session_store)
 
-
             survey_dates, survey_plot = get_survey_plot(session_store=session_store, col_to_plot='Magnetic_Field',
-                                    dataset_id=survey_data.id)
+                                                        dataset_id=survey_data.id)
 
             update_tags_dto = UpdateProjectTagsDTO(tags={
                 'Stage': 'Diurnal Correction',
@@ -356,6 +363,8 @@ def update_tags(survey_data, observatory_data, session_store):
                 ret_val = tags, no_update, no_update, no_update, survey_plot
             return ret_val
         else:
+            cache.delete_memoized(ResidualService.calculate_diurnal_correction)
+            cache.delete_memoized(perform_diurnal_correction)
 
             observatory_datasets = []
             for data in observatory_data:
@@ -461,9 +470,11 @@ def hide_dataset_selection_div(n_clicks, survey_state, observatory_state):
 @callback(
     Output({'type': 'plotly-plot', 'idx': 'residual-plot'}, 'figure', allow_duplicate=True),
     Output('local', 'data', allow_duplicate=True),
+    Output({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+            'prev': 'None', 'action': 'next'}, 'disabled', allow_duplicate=True),
     Input('show-previous-residual-plot-durn', 'n_clicks'),
     Input('show-next-residual-plot-durn', 'n_clicks'),
-    Input('perform-diurnal-correction', 'n_clicks'),
+    Input({'id': 'perform-diurnal-correction', 'action': 'calc_durn'}, 'n_clicks'),
     State('local', 'data'),
     prevent_initial_call=True
 )
@@ -478,14 +489,16 @@ def diurnal_correction_cta(
 
     ct = callback_context
     triggered = ct.triggered_id
+    disable_next = False
 
     active_project = ProjectService.get_project_by_id(session=session_store,
                                                       project_id=session_store[
                                                           AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
 
-    if triggered == "perform-diurnal-correction" and diurnal_correction is not None:
+    if type(triggered) is not str and triggered['id'] == "perform-diurnal-correction" and diurnal_correction is not None:
 
         surf_df_diurnal_computed = perform_diurnal_correction(active_project, session_store)
+        disable_next = False
 
         start = int(session_store[AppConfig.SURVEY_DATA_START_IDX]) if \
             AppConfig.SURVEY_DATA_START_IDX in session_store else 0
@@ -493,7 +506,10 @@ def diurnal_correction_cta(
         surf_df_diurnal_computed = surf_df_diurnal_computed.iloc[start:end]
 
         fig = generate_line_plot(surf_df_diurnal_computed)
-        return fig, session_store_patch
+
+        session_store_patch[AppConfig.DIURNAL_COMPUTED] = True
+
+        return fig, session_store_patch, disable_next
     elif triggered == 'show-next-residual-plot-durn' and next_button is not None:
 
         if diurnal_correction is not None and diurnal_correction > 0:
@@ -508,7 +524,7 @@ def diurnal_correction_cta(
 
             fig = generate_line_plot(surf_df_diurnal_computed)
 
-            return fig, session_store_patch
+            return fig, session_store_patch, False
         else:
             session_store_patch[
                 AppConfig.SURVEY_DATA_START_IDX] = start = int(session_store[AppConfig.SURVEY_DATA_START_IDX]) + 50000 \
@@ -539,7 +555,7 @@ def diurnal_correction_cta(
             fig_residual.update_layout(template='plotly_dark')
             fig_residual.update_traces(marker={'size': 2})
 
-            return fig_residual, session_store_patch
+            return fig_residual, session_store_patch, True
     elif triggered == 'show-previous-residual-plot-durn' and previous_button is not None:
         if diurnal_correction is not None and diurnal_correction > 0:
 
@@ -555,7 +571,7 @@ def diurnal_correction_cta(
 
             fig = generate_line_plot(surf_df_diurnal_computed)
 
-            return fig, session_store_patch
+            return fig, session_store_patch, False
         else:
             session_store_patch[AppConfig.SURVEY_DATA_START_IDX] = start = max(
                 session_store[AppConfig.SURVEY_DATA_START_IDX] - 50000, 0) \
@@ -587,9 +603,9 @@ def diurnal_correction_cta(
             fig_residual.update_layout(template='plotly_dark')
             fig_residual.update_traces(marker={'size': 2})
 
-            return fig_residual, session_store_patch
+            return fig_residual, session_store_patch, True
     else:
-        return no_update, no_update
+        return no_update, no_update, no_update
 
 
 def generate_line_plot(surf_df_diurnal_computed):
@@ -622,6 +638,130 @@ def perform_diurnal_correction(active_project, session_store):
     s_id = session_store[AppConfig.SURVEY_DATA_SELECTED]
     surf_df = get_or_download_dataframe(session_store=session_store, project=active_project,
                                         dataset_type='SURVEY_DATA', dataset_id=s_id)
-    surf_df_diurnal_computed = ResidualService.calculate_diurnal_correction(df_surf=surf_df, df_obs=obs_df)
+    surf_df_diurnal_computed = ResidualService \
+        .calculate_diurnal_correction(df_surf=surf_df, df_obs=obs_df, session_store=session_store)
 
     return surf_df_diurnal_computed
+
+
+@callback(
+    Output({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+            'prev': 'None', 'action': 'skip'}, 'disabled', allow_duplicate=True),
+    Output({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+            'prev': 'None', 'action': 'next'}, 'disabled', allow_duplicate=True),
+    Input("select-survey-data", "value"),
+    Input("select-observatory-data", "value"),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def manage_next_skip_state(survey_data, observatory_data, session_store):
+    triggered = callback_context.triggered
+    if not triggered:
+        raise PreventUpdate
+    elif not (survey_data or observatory_data):
+        raise PreventUpdate
+    else:
+        skip_state, next_state = False, True
+
+        diurnal_computed = os.path.exists(os.path.join(AppConfig.PROJECT_ROOT, "data",
+                                              session_store[AppIDAuthProvider.APPID_USER_NAME],
+                                              "processed",
+                                              f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv'))
+
+        if not survey_data:
+            return True, True
+
+        if survey_data and not observatory_data:
+            if diurnal_computed:
+                skip_state, next_state = False, False
+        elif survey_data and observatory_data and diurnal_computed:
+            skip_state, next_state = False, False
+        else:
+            skip_state, next_state = False, True
+
+    return skip_state, next_state
+
+
+@callback(
+    Output("dummy", "children"),
+    Input({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+           'prev': 'None', 'action': 'skip'}, "n_clicks"),
+    Input({'type': 'btn', 'subset': 'main-proj-flow', 'next': 'mag_data',
+           'prev': 'None', 'action': 'next'}, "n_clicks"),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def set_data_for_mag_stage(skip_button, next_button, session_store):
+    triggered = callback_context.triggered
+
+    if type(triggered) is not str and len(triggered) != 1:
+        return no_update
+    else:
+        triggered = callback_context.triggered_id
+
+    if not triggered:
+        raise PreventUpdate
+    elif triggered['action'] == 'next' and not next_button:
+        raise PreventUpdate
+    elif triggered['action'] == 'skip' and not skip_button:
+        raise PreventUpdate
+    else:
+        if triggered['action'] == 'next':
+
+            if session_store[AppConfig.DIURNAL_COMPUTED]:
+                durn_file_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
+                                              session_store[AppIDAuthProvider.APPID_USER_NAME],
+                                              "processed",
+                                              f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv')
+
+                new_dataset_id = str(uuid.uuid4())
+
+                new_file_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
+                                             session_store[AppIDAuthProvider.APPID_USER_NAME],
+                                             "downloads",
+                                             f'{new_dataset_id}.csv'
+                                             )
+
+                shutil.move(src=durn_file_path, dst=new_file_path)
+
+                parent_dataset_id = session_store[AppConfig.SURVEY_DATA_SELECTED]
+                existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
+                                                                    session_store=session_store)
+                project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+                link_state = 'DIURNALLY_CORRECTED'
+                tags = {'state': link_state}
+
+                if 'Observation Dates' in existing_dataset.tags:
+                    tags['Observation Dates'] = existing_dataset.tags['Observation Dates']
+
+                new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+                    dataset=CreateDatasetDTO(
+                        parent_dataset_id=parent_dataset_id,
+                        id=new_dataset_id,
+                        name=existing_dataset.name,
+                        dataset_type_id=existing_dataset.dataset_type.id,
+                        project_id=project_id,
+                        path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                        tags=tags
+                    ),
+                    project_dataset_state=link_state
+                )
+
+                try:
+                    azr_path = '{}.csv'.format(new_dataset_id)
+                    created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+                    BlobConnector.upload_blob(blob_name=azr_path,
+                                              local_file_path=new_file_path,
+                                              linked=False,
+                                              user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID])
+
+                    cache.delete_memoized(DatasetService.get_dataset_by_id)
+                    cache.delete_memoized(ProjectService.get_project_by_id)
+
+                    session[AppConfig.WORKING_DATASET] = new_dataset_id
+                    return no_update
+                except:
+                    pass
+        else:
+            session[AppConfig.WORKING_DATASET] = session_store[AppConfig.SURVEY_DATA_SELECTED]
+            return no_update
