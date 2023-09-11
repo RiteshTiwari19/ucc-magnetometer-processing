@@ -17,7 +17,8 @@ def get_mapbox_plot(df,
                     longitude_col='Longitude',
                     color_column='Magnetic_Field',
                     hover_name='Magnetic_Field',
-                    hover_data='Magnetic_Field'):
+                    hover_data='Magnetic_Field',
+                    points_to_clip=None):
 
     plot_df = df[::sampling_frequency].reset_index()
     custom_data = plot_df['index']

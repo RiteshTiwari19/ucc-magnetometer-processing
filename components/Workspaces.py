@@ -5,6 +5,7 @@ from dash.exceptions import PreventUpdate
 from flask import session
 import dash_mantine_components as dmc
 
+import AppConfig
 from FlaskCache import cache
 from api.ProjectsService import ProjectService
 from api.UserService import UserService
@@ -21,19 +22,19 @@ def get_workspaces_html(total_projects=2):
                 [
                     dbc.Tab(children=PageSkeleton.get_skeleton(),
                             label="Projects", tab_id="projects", activeTabClassName="fw-bold",
-                            activeLabelClassName="text-success",
+                            activeLabelClassName="text-success", disabled=AppConfig.DISABLED_TABS,
                             id={'type': 'tab', 'subset': 'project', 'idx': 'projects-page'}),
                     dbc.Tab(children=PageSkeleton.get_skeleton(),
                             label="Diurnal Correction", tab_id="mag_data_diurnal", activeTabClassName="fw-bold",
-                            activeLabelClassName="text-success",
+                            activeLabelClassName="text-success",disabled=AppConfig.DISABLED_TABS,
                             id={'type': 'tab', 'subset': 'project', 'idx': 'diurnal-correction-page'}),
                     dbc.Tab(children=PageSkeleton.get_skeleton(),
                             label="Residuals", tab_id="mag_data", activeTabClassName="fw-bold",
-                            activeLabelClassName="text-success",
+                            activeLabelClassName="text-success",disabled=AppConfig.DISABLED_TABS,
                             id={'type': 'tab', 'subset': 'project', 'idx': 'residuals-page'}),
                     dbc.Tab(children=PageSkeleton.get_skeleton(),
                             label="Interpolation", tab_id="mag_data_interpolation", activeTabClassName="fw-bold",
-                            activeLabelClassName="text-success",
+                            activeLabelClassName="text-success",disabled=AppConfig.DISABLED_TABS,
                             id={'type': 'tab', 'subset': 'project', 'idx': 'interpolation-page'}),
                 ],
                 id="tabs",

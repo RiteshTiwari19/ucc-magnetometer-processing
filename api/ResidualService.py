@@ -3,6 +3,7 @@ import uuid
 
 import numpy as np
 import pandas as pd
+from flask import session
 
 import AppConfig
 from FlaskCache import cache
@@ -12,8 +13,22 @@ from auth import AppIDAuthProvider
 class ResidualService:
 
     @classmethod
-    @cache.memoize(timeout=50000, args_to_ignore=['df'])
-    def calculate_residuals(cls, df, df_name, observed_smoothing_constant=100, ambient_smoothing_constant=500):
+    @cache.memoize(timeout=50000,
+                   args_to_ignore=['df', 'session_store'])
+    def calculate_residuals(cls, df,
+                            df_name,
+                            observed_smoothing_constant=100,
+                            ambient_smoothing_constant=500,
+                            points_to_clip=None,
+                            session_store=None,
+                            purpose='display'):
+
+        extracted_path = None
+        if session_store:
+            extracted_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
+                                          session_store[AppIDAuthProvider.APPID_USER_NAME], "processed",
+                                          f'{session_store[AppConfig.WORKING_DATASET]}_resid.csv')
+
         print('Calculate Residuals got called')
 
         df['id'] = [uuid.uuid4() for _ in range(len(df.index))]
@@ -30,7 +45,10 @@ class ResidualService:
 
         df['Baseline'] = df['Magnetic_Field_Smoothed'] - df['Magnetic_Field_Ambient']
 
-        return df
+        if purpose == 'save':
+            df.to_csv(extracted_path)
+
+        return df if purpose != 'save' else extracted_path
 
     @classmethod
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
