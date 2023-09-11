@@ -494,6 +494,9 @@ def diurnal_correction_cta(
     triggered = ct.triggered_id
     disable_next = False
 
+    if not previous_button and not next_button and not diurnal_correction:
+        raise PreventUpdate
+
     active_project = ProjectService.get_project_by_id(session=session_store,
                                                       project_id=session_store[
                                                           AppIDAuthProvider.CURRENT_ACTIVE_PROJECT])
@@ -765,9 +768,9 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                     cache.delete_memoized(ProjectService.get_project_by_id)
 
                     session[AppConfig.WORKING_DATASET] = new_dataset_id
-                    return "mag-data"
+                    return "mag_data"
                 except:
                     pass
         else:
             session[AppConfig.WORKING_DATASET] = session_store[AppConfig.SURVEY_DATA_SELECTED]
-            return "mag-data"
+            return "mag_data"

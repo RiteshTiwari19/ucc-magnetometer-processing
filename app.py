@@ -96,8 +96,9 @@ Sidebar.hover(app)
 
 @app.callback(
     Output("page-content", "children"),
-    Output("local", "data"),
-    [Input("url", "pathname")]
+    Output("local", "data", allow_duplicate=True),
+    [Input("url", "pathname")],
+    prevent_initial_call=True
 )
 @auth.check
 def render_page_content(pathname):

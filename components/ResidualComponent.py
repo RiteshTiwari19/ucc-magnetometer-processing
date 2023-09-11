@@ -1,27 +1,25 @@
 import time
 
-import dash
-import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import numpy as np
 import pandas as pd
 import plotly.express as px
 from dash import dcc, html, Input, Output, State, no_update, ALL, callback, clientside_callback, \
     callback_context
+from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 from flask import session
+from dash import Patch
 
 import AppConfig
 from FlaskCache import cache
 from api import ResidualService
 from api.DatasetService import DatasetService
 from api.ProjectsService import ProjectService
-from api.dto import ProjectsOutput, DatasetResponse, DatasetUpdateDTO
+from api.dto import DatasetResponse, DatasetUpdateDTO
 from auth import AppIDAuthProvider
 from components import ModalComponent, MapboxScatterPlot
 from dataservices import InMermoryDataService
-from flask import session
-
 from utils.ExportUtils import ExportUtils
 
 
@@ -106,7 +104,7 @@ def get_mag_data_page(session, configured_du):
 
             dmc.Button("Apply", variant='outline', color='secondary', id='calc-residuals-btn')
 
-        ], spacing='lg', className='hide-div', id='smoothing-constant-div', position='center'),
+        ], spacing='lg', className='show-div', id='smoothing-constant-div', position='center'),
 
         dmc.Space(h='lg'),
 
@@ -161,6 +159,30 @@ def get_mag_data_page(session, configured_du):
             id='clip-cta-parent', align='end', position='center'),
 
         html.Br(),
+
+        dmc.Aside(
+            p="xs",
+            width={"base": 45},
+            height=100,
+            fixed=True,
+            position={"right": 20, "top": "50%"},
+            children=dmc.Stack([
+                dmc.ActionIcon(
+                    DashIconify(icon='mdi:clip', width=30, color='dark-gray',
+                                id='side-panel-clip-color'),
+                    size="md",
+                    disabled=True,
+                    id='clip-side-panel'
+                ),
+                dmc.ActionIcon(
+                    DashIconify(icon='mdi:interaction-tap', width=30, color='dark-gray',
+                                id='side-panel-jump-color'),
+                    size="md",
+                    id='jump-plot-side-panel',
+                    disabled=True
+                )
+            ], mt='5px', align='center'),
+        ),
 
         html.Div(
             children=[
@@ -321,24 +343,6 @@ def generate_tag_badges(active_project, session_store, skip_extra_styling=False)
     return tag_buttons
 
 
-# def hide_dataset_selection_div_outer(app: dash.Dash):
-#     @app.callback(
-#         Output("select-dataset-div", "className", allow_duplicate=True),
-#         Output('dropdown-dataset', 'value', allow_duplicate=True),
-#         Input({'type': 'button', 'subset': 'residual-dataset-page', 'idx': ALL, 'action': ALL}, 'n_clicks'),
-#         State("select-dataset-div", "className"),
-#         prevent_initial_call=True
-#     )
-#     def hide_dataset_selection_div(n_clicks, current_state):
-#         ct = dash.callback_context
-#         button_id = ct.triggered_id
-#         if button_id['action'] == 'select-dataset':
-#             if n_clicks[0]:
-#                 return "show-div" if current_state == "hide-div" else "hide-div", None
-#             else:
-#                 return no_update, no_update
-
-
 @callback(
     Output('datasets-container-plot', 'children'),
     Output('datasets-residuals-plot', 'children'),
@@ -347,6 +351,7 @@ def generate_tag_badges(active_project, session_store, skip_extra_styling=False)
     Output('smoothing-constant-div', 'className'),
     Output('clip-min', 'value'),
     Output('clip-max', 'value'),
+    Output('local', 'data', allow_duplicate=True),
     Input('show-previous-residual-plot', 'n_clicks'),
     Input('show-next-residual-plot', 'n_clicks'),
     Input('calc-residuals-btn', 'n_clicks'),
@@ -357,16 +362,26 @@ def generate_tag_badges(active_project, session_store, skip_extra_styling=False)
     State('observed-smoothing-slider', 'value'),
     State('clip-min', 'value'),
     State('clip-max', 'value'),
+    State('local', 'data'),
     prevent_initial_call=True
 )
 def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals, clip,
                  reset_clip, ambient, observed,
-                 min_val, max_val):
+                 min_val, max_val, local_storage):
     if AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET not in session:
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = 0
 
     ct = callback_context
     triggered = ct.triggered_id
+
+    if triggered and (previous_button is None and next_button is None and calc_residual_btn is None
+                      and clip is None
+                      and reset_clip is None
+    ):
+        raise PreventUpdate
+
+    if 'LAST_CLICKED' not in session:
+        session['LAST_CLICKED'] = 'NONE'
 
     dataset_id = session[AppConfig.WORKING_DATASET]
 
@@ -379,14 +394,32 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     min_mag_ret = min_mag if triggered == "reset-clp-btn" and reset_clip else no_update
     max_mag_ret = max_mag if triggered == "reset-clp-btn" and reset_clip else no_update
 
+    session_store_patch = Patch() if AppConfig.POINTS_TO_CLIP in local_storage else no_update
+
+    if AppConfig.POINTS_TO_CLIP in local_storage and triggered != 'reset-clp-btn':
+        if len(local_storage[AppConfig.POINTS_TO_CLIP]) > 0:
+            df.loc[np.array(local_storage[AppConfig.POINTS_TO_CLIP]).min():np.array(
+                local_storage[AppConfig.POINTS_TO_CLIP]).max() + 1, 'Magnetic_Field'] = np.nan
+
+            df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
+            cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
+            cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
+
     if triggered == "reset-clp-btn":
         cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
         cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
+        if AppConfig.POINTS_TO_CLIP in local_storage:
+            del session_store_patch[AppConfig.POINTS_TO_CLIP]
+        session['LAST_CLICKED'] = 'RESET_CLIP'
+
+    if triggered == 'clip-button' and clip:
+        session['LAST_CLICKED'] = 'CLIP'
 
     condition = min_val and max_val and min_val != "" and max_val != "" \
-            and not max_mag <= float(min_val) \
-            and not min_mag >= float(max_val) \
-            and not (triggered == 'reset-clp-btn' and reset_clip)
+                and not max_mag <= float(min_val) \
+                and not min_mag >= float(max_val) \
+                and not (triggered == 'reset-clp-btn' and reset_clip) \
+                and clip and session['LAST_CLICKED'] != 'RESET_CLIP'
 
     if condition:
         df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].le(float(min_val)))
@@ -400,7 +433,7 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
 
     if triggered == 'calc-residuals-btn' or 'clip-button' or calc_residual_btn is not None:
         if triggered == 'clip-button' and not condition and clip:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
         df = ResidualService.ResidualService.calculate_residuals(df, df_name=None,
                                                                  ambient_smoothing_constant=ambient,
                                                                  observed_smoothing_constant=observed)
@@ -423,7 +456,8 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     custom_data = 'id' if 'id' in df.columns else None
 
     if not show_residuals:
-        fig_residual = px.scatter(df.reset_index().iloc[start:end], x='index', y='Magnetic_Field', custom_data=custom_data,
+        fig_residual = px.scatter(df.reset_index().iloc[start:end], x='index', y='Magnetic_Field',
+                                  custom_data=custom_data,
                                   labels={
                                       "index": "Index",
                                       "Magnetic_Field": "Magnetic Field",
@@ -439,17 +473,25 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if not show_residuals:
         colors = ['blue'] * 50000
     else:
-        colors = ['red' if abs(i) > 3 else 'blue' for i in df.loc[start:end, 'Baseline']]
+        colors = df.reset_index().loc[start:end, 'Baseline']
 
     if 'Baseline' in df.columns and not show_residuals and triggered != 'dropdown-dataset':
-        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'], y=df.reset_index().loc[start:end, 'Magnetic_Field_Ambient'],
+        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'],
+                                 y=df.reset_index().loc[start:end, 'Magnetic_Field_Ambient'],
                                  mode='lines', name='Ambient Smoothing')
-        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'], y=df.reset_index().loc[start:end, 'Magnetic_Field_Smoothed'],
+        fig_residual.add_scatter(x=df.reset_index().loc[start:end, 'index'],
+                                 y=df.reset_index().loc[start:end, 'Magnetic_Field_Smoothed'],
                                  mode='lines', name='Observed Smoothing')
+
+    show_scale = False if not show_residuals else True
+    color_scale = None if not show_residuals else 'Viridis'
 
     fig_residual.data[0].update(mode='lines+markers')
     fig_residual.update_layout(template='plotly_dark')
-    fig_residual.update_traces(marker={'size': 2, 'color': colors})
+    fig_residual.update_traces(marker={'size': 2,
+                                       'color': colors,
+                                       'showscale': show_scale,
+                                       'colorscale': color_scale})
 
     t_end = time.time()
     print(t_end - t_start)
@@ -458,7 +500,7 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
 
     return dcc.Graph(id='map_plot', figure=fig, style={'width': '100%'}), \
         dcc.Graph(id='grap2', figure=fig_residual, style={'width': '100%'}), "show-div", display_residuals_div, \
-        "show-div", min_mag_ret, max_mag_ret
+        "show-div", min_mag_ret, max_mag_ret, session_store_patch
 
 
 clientside_callback(
@@ -536,12 +578,103 @@ def switch_tab(btn_click, current_active_tab):
 
 
 @callback(
-    Output("selected-data-div", "children"),
-    Input("grap2", "selectedData")
+    Output("clip-side-panel", "disabled"),
+    Output("side-panel-clip-color", "color"),
+    Output("local", "data", allow_duplicate=True),
+    Input("grap2", "selectedData"),
+    State("local", "data"),
+    prevent_initial_call=True
 )
-def print_selected_data(selected_data):
-    print(selected_data)
-    return html.Div()
+def manage_sidebar_button_state(selected_data, local_storage):
+    if selected_data and len(selected_data['points']) > 0:
+        points_to_clip = [sd['x'] for sd in selected_data['points']]
+        patch = Patch()
+        if AppConfig.POINTS_TO_CLIP not in local_storage:
+            patch[AppConfig.POINTS_TO_CLIP] = points_to_clip
+        else:
+            patch[AppConfig.POINTS_TO_CLIP].extend(points_to_clip)
+        session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = points_to_clip[0]
+
+        return False, "red", patch
+    else:
+        return True, "gray", no_update
+
+
+@callback(
+    Output('calc-residuals-btn', 'n_clicks'),
+    Input('clip-side-panel', 'n_clicks'),
+    State('calc-residuals-btn', 'n_clicks'),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def clip_points(clip_btn, existing_clicks, session_store):
+    existing_clicks = existing_clicks or 0
+    if clip_btn and AppConfig.POINTS_TO_CLIP in session_store and len(session_store[AppConfig.POINTS_TO_CLIP]) > 0:
+        return existing_clicks + 1
+    else:
+        return no_update
+
+
+@callback(
+    Output("grap2", "figure", allow_duplicate=True),
+    Output("jump-plot-side-panel", "disabled"),
+    Output("side-panel-jump-color", "color"),
+    Input("map_plot", "selectedData"),
+    prevent_initial_call=True
+)
+def manage_sidebar_button_state(selected_data):
+    if selected_data and len(selected_data) > 0:
+        return no_update, False, "cyan"
+    else:
+        patch = Patch()
+        patch['layout']['annotations'].clear()
+        return patch, True, "gray"
+
+
+@callback(
+    Output("grap2", "figure", allow_duplicate=True),
+    Input("jump-plot-side-panel", "n_clicks"),
+    State("map_plot", "selectedData"),
+    State('observed-smoothing-slider', 'value'),
+    State('ambient-smoothing-slider', 'value'),
+    prevent_initial_call=True
+)
+def print_selected_data(btn_clicked, selected_data, observed_smoothing, ambient_smoothing):
+    if selected_data and len(selected_data) > 0 and btn_clicked:
+        mod_dict = {sd['customdata'][0]: sd['customdata'][1] for sd in selected_data['points']}
+        sorted_dict = sorted(mod_dict.items(), key=lambda x: abs(x[1]), reverse=True)[0]
+
+        df = get_or_download_dataframe(session_store=session, dataset_id=session[AppConfig.WORKING_DATASET])
+        df_resid = ResidualService.ResidualService.calculate_residuals(df, None,
+                                                                       observed_smoothing_constant=observed_smoothing,
+                                                                       ambient_smoothing_constant=ambient_smoothing)
+
+        min_index = max(0, sorted_dict[0] - 25000)
+        max_index = min(len(df_resid), min_index + 50000)
+
+        patch = Patch()
+
+        data_col = 'Baseline'
+
+        patch['data'][0]['x'] = df_resid.reset_index().loc[min_index:max_index, 'index'].to_numpy()
+        patch['data'][0]['y'] = df_resid.reset_index().loc[min_index:max_index, data_col].to_numpy()
+        patch['data'][0]['marker']['color'] = df_resid.reset_index().loc[min_index:max_index, data_col].to_numpy()
+        patch['data'][0]['marker']['showscale'] = True
+
+        patch['layout']['annotations'] = [dict(
+            x=sorted_dict[0],
+            y=sorted_dict[1],
+            text="Point with max residual from the selected points",
+            showarrow=True,
+            arrowhead=1,
+        )
+        ]
+
+        print(f'Updated plot: {sorted_dict}')
+    else:
+        patch = Patch()
+        patch['layout']['annotations'].clear()
+    return patch
 
 
 @cache.memoize(timeout=50000)
@@ -664,6 +797,5 @@ clientside_callback(
     """,
     Output('clip-button', 'disabled'),
     Input('clip-min', 'value'),
-    Input('clip-max', 'value'),
-    prevent_initial_call=True
+    Input('clip-max', 'value')
 )

@@ -19,12 +19,15 @@ def get_mapbox_plot(df,
                     hover_name='Magnetic_Field',
                     hover_data='Magnetic_Field'):
 
-    fig = px.scatter_mapbox(df[::sampling_frequency],
+    plot_df = df[::sampling_frequency].reset_index()
+    custom_data = plot_df['index']
+    fig = px.scatter_mapbox(plot_df,
                             lat=latitude_col,
                             lon=longitude_col,
                             hover_name=hover_name,
-                            hover_data=hover_data,
+                            hover_data=col_to_plot,
                             color=col_to_plot,
+                            custom_data='index',
                             color_continuous_scale=color_scale,
                             zoom=8
                             )
