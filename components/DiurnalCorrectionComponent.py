@@ -1,5 +1,6 @@
 import datetime
 import shutil
+import threading
 import time
 import os.path
 import uuid
@@ -212,7 +213,6 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
 
         if 'Observation Dates' not in dataset.tags:
-
             min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
             max_date = ret_df['Datetime'].max().strftime("%m/%d/%Y")
 
@@ -634,7 +634,7 @@ def generate_line_plot(surf_df_diurnal_computed):
     return fig
 
 
-@cache.memoize(timeout=50000)
+@cache.memoize(timeout=50000, args_to_ignore=['session_store'])
 def perform_diurnal_correction(active_project, session_store):
     obs_dfs = []
     d_ids = session_store[AppConfig.OBS_DATA_SELECTED]
@@ -670,10 +670,14 @@ def manage_next_skip_state(survey_data, observatory_data, session_store):
     else:
         skip_state, next_state = False, True
 
+        survey_data_selected = None
+        if triggered[0]['prop_id'] == 'select-survey-data.value':
+            survey_data_selected = survey_data
+
         diurnal_computed = os.path.exists(os.path.join(AppConfig.PROJECT_ROOT, "data",
                                                        session_store[AppIDAuthProvider.APPID_USER_NAME],
                                                        "processed",
-                                                       f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_durn.csv'))
+                                                       f'{survey_data_selected}_durn.csv'))
 
         if not survey_data:
             return True, True
@@ -723,7 +727,21 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                                               "processed",
                                               f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_{obs_ids}_durn.csv')
 
-                new_dataset_id = str(uuid.uuid4())
+                project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+                active_project = ProjectService.get_project_by_id(session=session_store,
+                                                                  project_id=project_id)
+                parent_dataset_id = session_store[AppConfig.SURVEY_DATA_SELECTED]
+                existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
+                                                                    session_store=session_store)
+                is_update = False
+                existing_dataset_id = None
+                for dat in active_project.datasets:
+                    if str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
+                            and dat.dataset.tags['state'] == 'DIURNALLY_CORRECTED':
+                        is_update = True
+                        existing_dataset_id = dat.dataset.id
+
+                new_dataset_id = str(uuid.uuid4()) if not is_update else existing_dataset_id
 
                 new_file_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
                                              session_store[AppIDAuthProvider.APPID_USER_NAME],
@@ -732,37 +750,48 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                                              )
 
                 shutil.move(src=durn_file_path, dst=new_file_path)
-
-                parent_dataset_id = session_store[AppConfig.SURVEY_DATA_SELECTED]
-                existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
-                                                                    session_store=session_store)
-                project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
-                link_state = 'DIURNALLY_CORRECTED'
-                tags = {'state': link_state}
-
-                if 'Observation Dates' in existing_dataset.tags:
-                    tags['Observation Dates'] = existing_dataset.tags['Observation Dates']
-
-                new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
-                    dataset=CreateDatasetDTO(
-                        parent_dataset_id=parent_dataset_id,
-                        id=new_dataset_id,
-                        name=existing_dataset.name,
-                        dataset_type_id=existing_dataset.dataset_type.id,
-                        project_id=project_id,
-                        path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
-                        tags=tags
-                    ),
-                    project_dataset_state=link_state
-                )
+                azr_path = '{}.csv'.format(new_dataset_id)
 
                 try:
-                    azr_path = '{}.csv'.format(new_dataset_id)
-                    created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
-                    BlobConnector.upload_blob(blob_name=azr_path,
-                                              local_file_path=new_file_path,
-                                              linked=False,
-                                              user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID])
+                    if not is_update:
+                        link_state = 'DIURNALLY_CORRECTED'
+                        tags = {'state': link_state}
+
+                        if 'Observation Dates' in existing_dataset.tags:
+                            tags['Observation Dates'] = existing_dataset.tags['Observation Dates']
+
+                        new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+                            dataset=CreateDatasetDTO(
+                                parent_dataset_id=parent_dataset_id,
+                                id=new_dataset_id,
+                                name=existing_dataset.name,
+                                dataset_type_id=existing_dataset.dataset_type.id,
+                                project_id=project_id,
+                                path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                                tags=tags
+                            ),
+                            project_dataset_state=link_state
+                        )
+                        created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+                    else:
+                        updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset.id,
+                                                                        session_store=session_store,
+                                                                        dataset_update_dto=DatasetUpdateDTO(
+                                                                            tags=existing_dataset.tags))
+
+                    uploader_thread = threading.Thread(
+                        target=BlobConnector.upload_blob, kwargs={
+                            'blob_name': azr_path,
+                            'user_id': session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
+                            'local_file_path': new_file_path,
+                            'linked': False
+                        })
+                    uploader_thread.start()
+                    #
+                    # BlobConnector.upload_blob(blob_name=azr_path,
+                    #                           local_file_path=new_file_path,
+                    #                           linked=False,
+                    #                           user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID])
 
                     cache.delete_memoized(DatasetService.get_dataset_by_id)
                     cache.delete_memoized(ProjectService.get_project_by_id)

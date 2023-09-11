@@ -52,7 +52,9 @@ class ResidualService:
 
     @classmethod
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
-    def calculate_diurnal_correction(cls, df_surf: pd.DataFrame, df_obs: pd.DataFrame, session_store):
+    def calculate_diurnal_correction(cls,
+                                     df_surf: pd.DataFrame,
+                                     df_obs: pd.DataFrame, session_store):
 
         obs_ids = ';'.join(session_store[AppConfig.OBS_DATA_SELECTED])
 

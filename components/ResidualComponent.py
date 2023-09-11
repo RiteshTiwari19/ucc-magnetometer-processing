@@ -376,6 +376,12 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET not in session:
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = 0
 
+    if AppConfig.POINTS_TO_CLIP not in local_storage:
+        local_storage[AppConfig.POINTS_TO_CLIP] = {}
+    else:
+        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT not in local_storage[AppConfig.POINTS_TO_CLIP]:
+            local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = []
+
     ct = callback_context
     triggered = ct.triggered_id
 
@@ -399,12 +405,16 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     min_mag_ret = min_mag if triggered == "reset-clp-btn" and reset_clip else no_update
     max_mag_ret = max_mag if triggered == "reset-clp-btn" and reset_clip else no_update
 
-    session_store_patch = Patch() if AppConfig.POINTS_TO_CLIP in local_storage else no_update
+    session_store_patch = Patch() if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] \
+        else no_update
 
-    if AppConfig.POINTS_TO_CLIP in local_storage and triggered != 'reset-clp-btn':
-        if len(local_storage[AppConfig.POINTS_TO_CLIP]) > 0:
-            df.loc[np.array(local_storage[AppConfig.POINTS_TO_CLIP]).min():np.array(
-                local_storage[AppConfig.POINTS_TO_CLIP]).max() + 1, 'Magnetic_Field'] = np.nan
+    dataset_level_clips = []
+
+    if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[
+        AppConfig.POINTS_TO_CLIP] and triggered != 'reset-clp-btn':
+        if len(local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]) > 0:
+            cp = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+            df.loc[np.array(cp).min():np.array(cp).max() + 1, 'Magnetic_Field'] = np.nan
 
             df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
             # cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
@@ -413,8 +423,8 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if triggered == "reset-clp-btn":
         cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
         cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
-        if AppConfig.POINTS_TO_CLIP in local_storage:
-            del session_store_patch[AppConfig.POINTS_TO_CLIP]
+        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP]:
+            del session_store_patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
         session['LAST_CLICKED'] = 'RESET_CLIP'
 
     if triggered == 'clip-button' and clip:
@@ -431,16 +441,18 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
 
         df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].ge(float(max_val)))
 
-        df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
+        dataset_level_clips = list(df[df['Magnetic_Field'].isna()].index)
 
-        # cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
-        # cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
+        df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
 
     if triggered == 'calc-residuals-btn' or 'clip-button' or calc_residual_btn is not None:
         if triggered == 'clip-button' and not condition and clip:
             return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP] if AppConfig.POINTS_TO_CLIP in local_storage else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
+            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+
+        points_to_clip = points_to_clip + dataset_level_clips
         df = ResidualService.ResidualService.calculate_residuals(df, df_name=None,
                                                                  ambient_smoothing_constant=ambient,
                                                                  observed_smoothing_constant=observed,
@@ -448,12 +460,18 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
                                                                  session_store=session)
 
     if not show_residuals:
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP] if AppConfig.POINTS_TO_CLIP in local_storage else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
+            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = points_to_clip + dataset_level_clips
+
         fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
                                                 col_to_plot='Magnetic_Field',
                                                 points_to_clip=points_to_clip)
     else:
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP] if AppConfig.POINTS_TO_CLIP in local_storage else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
+            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = points_to_clip + dataset_level_clips
+
         fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
                                                 col_to_plot='Baseline',
                                                 points_to_clip=points_to_clip
@@ -580,14 +598,33 @@ def set_data_for_interpolation_state(
 
     df = get_or_download_dataframe(session_store=session, dataset_id=session[AppConfig.WORKING_DATASET])
 
-    resid_file_path = ResidualService.ResidualService\
+    resid_file_path = ResidualService.ResidualService \
         .calculate_residuals(df, df_name=None,
                              observed_smoothing_constant=observed_smoothing_constant,
                              ambient_smoothing_constant=ambient_smoothing_constant,
                              session_store=session,
                              purpose='save')
 
-    new_dataset_id = str(uuid.uuid4())
+    cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
+
+    parent_dataset_id = session[AppConfig.WORKING_DATASET]
+    existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
+                                                        session_store=session_store)
+
+    update_dataset = False
+    project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+
+    active_project = ProjectService.get_project_by_id(session=session_store,
+                                                      project_id=project_id)
+
+    existing_dataset_id = None
+    for dat in active_project.datasets:
+        if str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
+                and dat.dataset.tags['state'] == 'RESIDUALS_COMPUTED':
+            existing_dataset_id = dat.dataset.id
+            update_dataset = True
+
+    new_dataset_id = str(uuid.uuid4()) if not update_dataset else existing_dataset_id
 
     new_file_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
                                  session_store[AppIDAuthProvider.APPID_USER_NAME],
@@ -597,32 +634,33 @@ def set_data_for_interpolation_state(
 
     shutil.move(src=resid_file_path, dst=new_file_path)
 
-    parent_dataset_id = session[AppConfig.WORKING_DATASET]
-    existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
-                                                        session_store=session_store)
-    project_id = session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
     link_state = 'RESIDUALS_COMPUTED'
     tags = {'state': link_state}
 
     if 'Observation Dates' in existing_dataset.tags:
         tags['Observation Dates'] = existing_dataset.tags['Observation Dates']
 
-    new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
-        dataset=CreateDatasetDTO(
-            parent_dataset_id=parent_dataset_id,
-            id=new_dataset_id,
-            name=existing_dataset.name,
-            dataset_type_id=existing_dataset.dataset_type.id,
-            project_id=project_id,
-            path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
-            tags=tags
-        ),
-        project_dataset_state=link_state
-    )
-
     try:
         azr_path = '{}.csv'.format(new_dataset_id)
-        created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+        if not update_dataset:
+            new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+                dataset=CreateDatasetDTO(
+                    parent_dataset_id=parent_dataset_id,
+                    id=new_dataset_id,
+                    name=existing_dataset.name,
+                    dataset_type_id=existing_dataset.dataset_type.id,
+                    project_id=project_id,
+                    path=f"datasets/{session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                    tags=tags
+                ),
+                project_dataset_state=link_state
+            )
+            created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
+        else:
+            updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset.id,
+                                                            session_store=session_store,
+                                                            dataset_update_dto=DatasetUpdateDTO(
+                                                                tags=existing_dataset.tags))
 
         uploader_thread = threading.Thread(
             target=BlobConnector.upload_blob, kwargs={
@@ -632,11 +670,6 @@ def set_data_for_interpolation_state(
                 'linked': False
             })
         uploader_thread.start()
-
-        # BlobConnector.upload_blob(blob_name=azr_path,
-        #                           local_file_path=new_file_path,
-        #                           linked=False,
-        #                           user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID])
 
         cache.delete_memoized(DatasetService.get_dataset_by_id)
         cache.delete_memoized(ProjectService.get_project_by_id)
@@ -659,10 +692,14 @@ def manage_sidebar_button_state(selected_data, local_storage):
     if selected_data and len(selected_data['points']) > 0:
         points_to_clip = [sd['x'] for sd in selected_data['points']]
         patch = Patch()
+
         if AppConfig.POINTS_TO_CLIP not in local_storage:
-            patch[AppConfig.POINTS_TO_CLIP] = points_to_clip
+            local_storage[AppConfig.POINTS_TO_CLIP] = {}
+
+        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT not in local_storage[AppConfig.POINTS_TO_CLIP]:
+            patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = points_to_clip
         else:
-            patch[AppConfig.POINTS_TO_CLIP].extend(points_to_clip)
+            patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT].extend(points_to_clip)
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = points_to_clip[0]
 
         return False, "red", patch
@@ -679,7 +716,8 @@ def manage_sidebar_button_state(selected_data, local_storage):
 )
 def clip_points(clip_btn, existing_clicks, session_store):
     existing_clicks = existing_clicks or 0
-    if clip_btn and AppConfig.POINTS_TO_CLIP in session_store and len(session_store[AppConfig.POINTS_TO_CLIP]) > 0:
+    if clip_btn and AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in session_store[AppConfig.POINTS_TO_CLIP] \
+            and len(session_store[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]) > 0:
         return existing_clicks + 1
     else:
         return no_update
@@ -707,17 +745,24 @@ def manage_sidebar_button_state(selected_data):
     State("map_plot", "selectedData"),
     State('observed-smoothing-slider', 'value'),
     State('ambient-smoothing-slider', 'value'),
+    State('show-residuals-switch', 'checked'),
     State('local', 'data'),
     prevent_initial_call=True
 )
-def print_selected_data(btn_clicked, selected_data, observed_smoothing, ambient_smoothing, local_storage):
+def print_selected_data(btn_clicked, selected_data, observed_smoothing, ambient_smoothing,
+                        show_residuals,
+                        local_storage):
     if selected_data and len(selected_data) > 0 and btn_clicked:
         mod_dict = {sd['customdata'][0]: sd['customdata'][1] for sd in selected_data['points']}
         sorted_dict = sorted(mod_dict.items(), key=lambda x: abs(x[1]), reverse=True)[0]
 
         df = get_or_download_dataframe(session_store=session, dataset_id=session[AppConfig.WORKING_DATASET])
 
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP] if AppConfig.POINTS_TO_CLIP in local_storage else []
+        if AppConfig.POINTS_TO_CLIP not in local_storage:
+            local_storage[AppConfig.POINTS_TO_CLIP] = {}
+
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
+            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
         df_resid = ResidualService.ResidualService.calculate_residuals(df, None,
                                                                        observed_smoothing_constant=observed_smoothing,
                                                                        ambient_smoothing_constant=ambient_smoothing,
@@ -727,9 +772,11 @@ def print_selected_data(btn_clicked, selected_data, observed_smoothing, ambient_
         min_index = max(0, sorted_dict[0] - 25000)
         max_index = min(len(df_resid), min_index + 50000)
 
+        session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = min_index
+
         patch = Patch()
 
-        data_col = 'Baseline'
+        data_col = 'Baseline' if show_residuals else 'Magnetic_Field'
 
         patch['data'][0]['x'] = df_resid.reset_index().loc[min_index:max_index, 'index'].to_numpy()
         patch['data'][0]['y'] = df_resid.reset_index().loc[min_index:max_index, data_col].to_numpy()
