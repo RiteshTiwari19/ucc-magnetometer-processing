@@ -51,6 +51,37 @@ class ResidualService:
         return df if purpose != 'save' else extracted_path
 
     @classmethod
+    @cache.memoize(timeout=50000,
+                   args_to_ignore=['df', 'session_store'])
+    def calculate_residuals_with_clip(cls, df,
+                                      df_name,
+                                      observed_smoothing_constant=100,
+                                      ambient_smoothing_constant=500,
+                                      points_to_clip=None,
+                                      session_store=None,
+                                      min_val=None,
+                                      max_val=None,
+                                      purpose='save'):
+
+        if min_val and max_val:
+            df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].le(float(min_val)))
+
+            df['Magnetic_Field'] = df['Magnetic_Field'].mask(df['Magnetic_Field'].ge(float(max_val)))
+
+            df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
+
+        if len(points_to_clip) > 0:
+            df.loc[points_to_clip, 'Magnetic_Field'] = np.nan
+            df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
+
+        return cls.calculate_residuals(df, df_name=None,
+                                       ambient_smoothing_constant=ambient_smoothing_constant,
+                                       observed_smoothing_constant=observed_smoothing_constant,
+                                       points_to_clip=points_to_clip,
+                                       purpose=purpose,
+                                       session_store=session)
+
+    @classmethod
     @cache.memoize(timeout=50000, args_to_ignore=['df'])
     def calculate_diurnal_correction(cls,
                                      df_surf: pd.DataFrame,
@@ -59,8 +90,8 @@ class ResidualService:
         obs_ids = ';'.join(session_store[AppConfig.OBS_DATA_SELECTED])
 
         extracted_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
-                     session_store[AppIDAuthProvider.APPID_USER_NAME], "processed",
-                     f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_{obs_ids}_durn.csv')
+                                      session_store[AppIDAuthProvider.APPID_USER_NAME], "processed",
+                                      f'{session_store[AppConfig.SURVEY_DATA_SELECTED]}_{obs_ids}_durn.csv')
 
         if os.path.exists(extracted_path):
             return pd.read_csv(extracted_path)
@@ -94,7 +125,7 @@ class ResidualService:
         df_obs = df_obs[(df_obs.index >= df_surf.index.min()) & (df_obs.index <= df_surf.index.max())]
 
         df_obs = df_obs[df_obs.index.isin(df_surf.index)].sort_index()
-        df_obs['Magnetic_Field_Smoothed'] = df_obs['Magnetic_Field']\
+        df_obs['Magnetic_Field_Smoothed'] = df_obs['Magnetic_Field'] \
             .rolling(window=100, min_periods=1, win_type='boxcar', center=True).mean()
         df_obs['Magnetic_Field_Smoothed'] = df_obs['Magnetic_Field_Smoothed'] - df_obs['Magnetic_Field_Smoothed'].mean()
 

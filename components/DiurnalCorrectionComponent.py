@@ -743,11 +743,15 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                                                                     session_store=session_store)
                 is_update = False
                 existing_dataset_id = None
+                existing_tags = None
                 for dat in active_project.datasets:
                     if str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
                             and dat.dataset.tags['state'] == 'DIURNALLY_CORRECTED':
                         is_update = True
                         existing_dataset_id = dat.dataset.id
+                        existing_tags = dat.dataset.tags
+
+                existing_tags['state'] = 'DIURNALLY_CORRECTED'
 
                 new_dataset_id = str(uuid.uuid4()) if not is_update else existing_dataset_id
 
@@ -782,10 +786,10 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                         )
                         created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
                     else:
-                        updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset.id,
+                        updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset_id,
                                                                         session_store=session_store,
                                                                         dataset_update_dto=DatasetUpdateDTO(
-                                                                            tags=existing_dataset.tags))
+                                                                            tags=existing_tags))
 
                     uploader_thread = threading.Thread(
                         target=BlobConnector.upload_blob, kwargs={
