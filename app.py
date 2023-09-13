@@ -9,6 +9,7 @@ from dash.dependencies import Output, Input
 from flask import session
 from flask import Flask, send_from_directory
 
+from api.DatasetService import DatasetService
 from auth import AppIDAuthProvider
 from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, ResidualComponent, Toast, \
     ModalComponent
@@ -38,23 +39,20 @@ CONTENT_STYLE = {
 @auth.check
 def download(path):
     """Serve a file from the upload directory."""
-    root_dir = os.path.dirname(os.getcwd())
-    dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'downloads')
+    dir = os.path.join(os.path.dirname(os.getcwd()), 'mag-project', 'data',
+                       session[AppIDAuthProvider.APPID_USER_NAME], 'exported')
 
-    local_path = path.split('____')[-1]
-    path = path.split('____')[0]
+    format = path.split('.')[-1]
+    dataset_id = path.split('.')[0]
 
-    if not os.path.exists(f"{dir}/{path}"):
-        if path.endswith('csv'):
-            ExportUtils.export_csv(dataset_path=local_path, dataset_id=None, session=session)
-        elif path.endswith('zip'):
-            dir_out, path = ExportUtils.export_shp_file(dataset_path=local_path, session=session, dataset_id=None)
-            dir = dir + dir_out
-        elif path.endswith('tiff'):
-            return send_from_directory(dir, local_path, as_attachment=True)
+    dataset = DatasetService.get_dataset_by_id(dataset_id=dataset_id, session_store=session)
+    data_path = dataset.tags['export'][format]
 
+    if len(data_path.split('\\')) > 1:
+        dir = os.path.join(dir, data_path.split('\\')[0])
+        data_path = data_path.split('\\')[-1]
 
-    return send_from_directory(dir, local_path, as_attachment=True)
+    return send_from_directory(dir, data_path, as_attachment=True)
 
 
 app.layout = dmc.MantineProvider(
@@ -111,7 +109,8 @@ def render_page_content(pathname):
     patch[AppIDAuthProvider.APPID_USER_TOKEN] = session[AppIDAuthProvider.APPID_USER_TOKEN]
     patch[AppIDAuthProvider.APPID_USER_BACKEND_ID] = session[AppIDAuthProvider.APPID_USER_BACKEND_ID]
     patch[AppIDAuthProvider.APPID_USER_ROLES] = session[AppIDAuthProvider.APPID_USER_ROLES]
-    patch[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = session[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in session else None
+    patch[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = session[
+        AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in session else None
     if pathname == "/dashboard/":
         return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces)), patch
     elif pathname == "/dashboard/datasets":

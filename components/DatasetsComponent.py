@@ -3,6 +3,7 @@ from urllib.parse import quote as urlquote
 
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
+import pandas as pd
 from dash import State, html, Input, Output, ALL, callback, clientside_callback, MATCH, callback_context, \
     no_update
 from dash import dcc
@@ -13,8 +14,9 @@ from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
-from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO
+from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO
 from components import Toast
+from utils.ExportUtils import ExportUtils
 
 
 def get_color_based_on_dataset_type(dataset_type_name):
@@ -31,67 +33,68 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
         datasets_filter: DatasetFilterDTO = DatasetFilterDTO()
         datasets_filter.states = 'DETACHED'
 
-    dataset_papers = [html.Div(id='choose-project-link-modal'),
-                      dmc.Group([
-                          dmc.Group([
-                              html.Div([
-                                  "Project",
-                                  dcc.Dropdown(
-                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
-                                          'sub': 'project-filter'})
-                              ], style={'width': '100%'}),
-                              html.Div([
-                                  "Dataset Type",
-                                  dcc.Dropdown(
-                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
-                                          'sub': 'dataset-type-filter'})
-                              ], style={'width': '100%'}),
-                              html.Div([
-                                  "Dataset State",
-                                  dcc.Dropdown(
-                                      options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED',
-                                               'INTERPOLATED'],
-                                      value='DETACHED',
-                                      multi=True,
-                                      id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
-                                          'sub': 'dataset-state-filter'})
-                              ], style={'width': '100%'}),
+    dataset_papers = [
+        html.Div(id='choose-project-link-modal'),
+        dmc.Group([
+            dmc.Group([
+                html.Div([
+                    "Project",
+                    dcc.Dropdown(
+                        id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                            'sub': 'project-filter'})
+                ], style={'width': '100%'}),
+                html.Div([
+                    "Dataset Type",
+                    dcc.Dropdown(
+                        id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                            'sub': 'dataset-type-filter'})
+                ], style={'width': '100%'}),
+                html.Div([
+                    "Dataset State",
+                    dcc.Dropdown(
+                        options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED',
+                                 'INTERPOLATED'],
+                        value='DETACHED',
+                        multi=True,
+                        id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
+                            'sub': 'dataset-state-filter'})
+                ], style={'width': '100%'}),
 
-                              dmc.TextInput(label="Dataset Name:", placeholder="Provide a dataset name to filter",
-                                            id='dataset-name-filter', icon=DashIconify(icon='ic:sharp-search',
-                                                                                       width=30)),
-                          ], grow=True, style={'minWidth': '80%'}),
-                          dmc.Group([
-                              dmc.Button('Filter',
-                                         leftIcon=DashIconify(icon="system-uicons:filter", color='dark-green',
-                                                              width=20),
-                                         variant='filled',
-                                         color='blue',
-                                         id='filter-datasets-button'
-                                         )
-                          ], grow=False, maw='200px')
+                dmc.TextInput(label="Dataset Name:", placeholder="Provide a dataset name to filter",
+                              id='dataset-name-filter', icon=DashIconify(icon='ic:sharp-search',
+                                                                         width=30)),
+            ], grow=True, style={'minWidth': '80%'}),
+            dmc.Group([
+                dmc.Button('Filter',
+                           leftIcon=DashIconify(icon="system-uicons:filter", color='dark-green',
+                                                width=20),
+                           variant='filled',
+                           color='blue',
+                           id='filter-datasets-button'
+                           )
+            ], grow=False, maw='200px')
 
-                      ], align='end', grow=True, position='apart')
-                      ]
+        ], align='end', grow=True, position='apart')
+    ]
 
     datasets = get_datasets_from_db(datasets_filter, session_store)
 
     out = dmc.Stack([
         dmc.Stack(dataset_papers, align='stretch', id='datasets_filter_stack'),
-        dmc.Stack(children=datasets, align='stretch', mt='sm', id='datasets_stack')
+        dmc.Stack(children=datasets, align='stretch', mt='sm', id='datasets_stack'),
+        html.Div(id='export-configurer-modal')
     ], align='stretch', mt='lg')
 
     return out
 
 
-def get_single_menu_item(dataset, session_store, dtype):
-    if dtype == 'CSV':
-        menu_item_id = 'csv-export-item'
-        if 'export' in dataset.tags in dataset.tags and 'raster' in dataset.tags['export']:
+def get_single_menu_item(dataset, dataset_format):
+    if dataset_format == 'CSV':
+        menu_item_id = {'subset': 'csv-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
+        if 'export' in dataset.tags and 'CSV' in dataset.tags['export']:
             menu_item = dmc.MenuItem(
                 "CSV",
-                href=file_download_link(dataset=dataset,
-                                        session_store=session_store, dtype='csv'),
+                href=file_download_link(dataset=dataset, data_type='CSV'),
                 target="_blank",
                 icon=DashIconify(icon="iwwa:csv", color="lime"),
                 id=menu_item_id
@@ -102,14 +105,13 @@ def get_single_menu_item(dataset, session_store, dtype):
                 id=menu_item_id,
                 icon=DashIconify(icon="iwwa:csv", color="lime"))
 
-    elif dtype == 'SHP':
-        menu_item_id = 'shp-export-item'
-        if 'export' in dataset.tags in dataset.tags and 'shp' in dataset.tags['export']:
+    elif dataset_format == 'SHP':
+        menu_item_id = {'subset': 'shp-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
+        if 'export' in dataset.tags and 'ShapeFile' in dataset.tags['export']:
             menu_item = dmc.MenuItem("Shapefile",
                                      icon=DashIconify(icon="gis:shape-file", color="lime"),
                                      href=file_download_link(dataset=dataset,
-                                                             session_store=session_store,
-                                                             dtype='zip'),
+                                                             data_type='ShapeFile'),
                                      id=menu_item_id,
                                      target="_blank"
                                      )
@@ -119,13 +121,12 @@ def get_single_menu_item(dataset, session_store, dtype):
                                      id=menu_item_id
                                      )
     else:
-        menu_item_id = 'raster-export-item'
-        if 'export' in dataset.tags and 'raster' in dataset.tags['export']:
+        menu_item_id = {'subset': 'raster-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
+        if 'export' in dataset.tags and 'Raster' in dataset.tags['export']:
             menu_item = dmc.MenuItem("Raster",
                                      icon=DashIconify(icon="vaadin:raster", color="lime"),
                                      href=file_download_link(dataset=dataset,
-                                                             session_store=session_store,
-                                                             dtype='raster'),
+                                                             data_type='Raster'),
                                      target="_blank",
                                      id=menu_item_id
                                      )
@@ -139,11 +140,12 @@ def get_single_menu_item(dataset, session_store, dtype):
 
 
 def get_menu_items_for_dataset(dataset, session_store):
-    menu_items = [get_single_menu_item(dataset, session_store, 'CSV'),
-                  get_single_menu_item(dataset, session_store, 'SHP')]
+    menu_items = [get_single_menu_item(dataset, 'CSV')]
 
     if dataset.dataset_type.name == 'BATHYMETRY_DATA':
-        menu_items.append(get_single_menu_item(dataset, session_store, 'TIFF'))
+        menu_items.append(get_single_menu_item(dataset, 'TIFF'))
+    if dataset.dataset_type.name != 'OBSERVATORY_DATA':
+        menu_items.append(get_single_menu_item(dataset, 'SHP'))
 
     menu_dropdown = dmc.MenuDropdown(
         children=
@@ -266,6 +268,18 @@ clientside_callback(
     Output("modal-link-dataset-to-project", "opened"),
     Input("modal-close-button", "n_clicks"),
     State("modal-link-dataset-to-project", "opened"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function(nc1, opened) {
+        return opened ? false: true
+    }
+    """,
+    Output("modal-export_dataset", "opened"),
+    Input("export-modal-close-button", "n_clicks"),
+    State("modal-export_dataset", "opened"),
     prevent_initial_call=True,
 )
 
@@ -430,8 +444,8 @@ def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_qu
     return get_datasets_from_db(datasets_filter=dataset_filter_dto, session_store=session_store)
 
 
-def file_download_link(dataset, session_store, dtype='csv'):
-    location = "/download/{}.{}____{}".format(urlquote(dataset.name), dtype, dataset.path)
+def file_download_link(dataset, data_type='CSV'):
+    location = "/download/{}.{}".format(dataset.id, data_type)
     return location
 
 
@@ -480,3 +494,144 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
         ])
         tag_buttons.append(btn_to_add)
     return tag_buttons
+
+
+@callback(
+    Output('export-configurer-modal', 'children'),
+    Input({'subset': ALL, 'action': 'export', 'type': 'btn', 'dataset_id': ALL}, "n_clicks"),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def configure_export(trigger, local_storage):
+    if not callback_context.triggered:
+        raise PreventUpdate
+
+    triggered_id = callback_context.triggered_id
+    dataset = DatasetService.get_dataset_by_id(dataset_id=triggered_id['dataset_id'], session_store=local_storage)
+
+    download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
+                                                            dataset_id=dataset.id,
+                                                            session=local_storage)
+
+    df = pd.read_csv(download_path)
+
+    unnamed_cols = [col for col in df.columns if 'unnamed' in col.lower()]
+
+    df = df.drop(columns=unnamed_cols)
+
+    if triggered_id['subset'] == 'csv-export-item':
+        modal_title = 'CSV Export'
+        export_format = 'csv'
+    elif triggered_id['subset'] == 'shp-export-item':
+        modal_title = 'Shape File Export'
+        export_format = 'shp'
+    else:
+        modal_title = 'Raster Export'
+        export_format = 'tiff'
+
+    modal = dmc.Modal(
+        title=modal_title,
+        id="modal-export_dataset",
+        zIndex=10000,
+        opened=True,
+        centered=True,
+        children=[
+            dmc.Group([
+                dmc.Text("Dataset", weight=500, underline=False),
+                dmc.Text(dataset.name, id='dataset_export_name', color='dimmed')
+            ]),
+
+            dmc.Space(h=15),
+
+            dmc.MultiSelect(
+                label='Columns to Export',
+                value=['Easting', 'Northing'],
+                data=df.columns,
+                placeholder='Select columns to export',
+                id='export-dataset-columns'
+            ) if 'modal_title' != 'Raster Export' else dmc.Select(
+                label='Column to Interpolate',
+                data=df.columns,
+                placeholder='Select column to interpolate',
+                id='export-dataset-column-raster'
+            ),
+
+            dmc.Space(h=20),
+            dmc.Group(
+                [
+                    dmc.Button("Request Export",
+                               id={'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request',
+                                   'index': dataset.id, 'format': export_format}),
+                    dmc.Button(
+                        "Close",
+                        color="red",
+                        variant="outline",
+                        id="export-modal-close-button",
+                    ),
+                ],
+                position="right",
+            ),
+        ],
+    )
+
+    return modal
+
+
+@callback(
+    Output('local', 'data', allow_duplicate=True),
+    Input({'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request', 'index': ALL, 'format': ALL}, 'n_clicks'),
+    State('export-dataset-columns', 'value'),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def process_export_request(btn_clicked, export_dataset_columns, local_storage):
+    triggered = callback_context.triggered
+    default_cols = {'Easting', 'Northing'}
+    if not triggered or not any(click for click in btn_clicked):
+        raise PreventUpdate
+    elif default_cols.issubset(set(export_dataset_columns)) and len(default_cols) == len(export_dataset_columns):
+        raise PreventUpdate
+    else:
+
+        triggered_id = callback_context.triggered_id
+
+        dataset_id = triggered_id['index']
+        export_format = triggered_id['format']
+
+        dataset = DatasetService.get_dataset_by_id(dataset_id=dataset_id,
+                                                   session_store=local_storage)
+
+        if export_format == 'csv':
+            exported_file_path = ExportUtils.export_csv(
+                dataset_id=dataset_id,
+                session=local_storage,
+                cols_to_export=export_dataset_columns
+            )
+
+            existing_tags = dataset.tags
+            if 'export' not in existing_tags:
+                existing_tags['export'] = {'CSV': exported_file_path}
+            else:
+                existing_tags['export']['CSV'] = exported_file_path
+
+        else:
+            exported_file_path = ExportUtils.export_shp_file(
+                dataset_id=dataset_id,
+                session=local_storage,
+                cols_to_export=export_dataset_columns
+            )
+
+            existing_tags = dataset.tags
+            if 'export' not in existing_tags:
+                existing_tags['export'] = {'ShapeFile': exported_file_path}
+            else:
+                existing_tags['export']['ShapeFile'] = exported_file_path
+
+        update_dataset_dto: DatasetUpdateDTO = DatasetUpdateDTO(
+            tags=existing_tags
+        )
+        updated_dataset = DatasetService.update_dataset(dataset_id=dataset.id,
+                                                        session_store=local_storage,
+                                                        dataset_update_dto=DatasetUpdateDTO(tags=existing_tags))
+
+        return no_update
