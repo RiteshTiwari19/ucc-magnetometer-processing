@@ -84,6 +84,79 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
     return out
 
 
+def get_single_menu_item(dataset, session_store, dtype):
+    if dtype == 'CSV':
+        menu_item_id = 'csv-export-item'
+        if 'export' in dataset.tags in dataset.tags and 'raster' in dataset.tags['export']:
+            menu_item = dmc.MenuItem(
+                "CSV",
+                href=file_download_link(dataset=dataset,
+                                        session_store=session_store, dtype='csv'),
+                target="_blank",
+                icon=DashIconify(icon="iwwa:csv", color="lime"),
+                id=menu_item_id
+            )
+        else:
+            menu_item = dmc.MenuItem(
+                "CSV",
+                id=menu_item_id,
+                icon=DashIconify(icon="iwwa:csv", color="lime"))
+
+    elif dtype == 'SHP':
+        menu_item_id = 'shp-export-item'
+        if 'export' in dataset.tags in dataset.tags and 'shp' in dataset.tags['export']:
+            menu_item = dmc.MenuItem("Shapefile",
+                                     icon=DashIconify(icon="gis:shape-file", color="lime"),
+                                     href=file_download_link(dataset=dataset,
+                                                             session_store=session_store,
+                                                             dtype='zip'),
+                                     id=menu_item_id,
+                                     target="_blank"
+                                     )
+        else:
+            menu_item = dmc.MenuItem("Shapefile",
+                                     icon=DashIconify(icon="gis:shape-file", color="lime"),
+                                     id=menu_item_id
+                                     )
+    else:
+        menu_item_id = 'raster-export-item'
+        if 'export' in dataset.tags and 'raster' in dataset.tags['export']:
+            menu_item = dmc.MenuItem("Raster",
+                                     icon=DashIconify(icon="vaadin:raster", color="lime"),
+                                     href=file_download_link(dataset=dataset,
+                                                             session_store=session_store,
+                                                             dtype='raster'),
+                                     target="_blank",
+                                     id=menu_item_id
+                                     )
+        else:
+            menu_item = dmc.MenuItem("Raster",
+                                     icon=DashIconify(icon="vaadin:raster", color="lime"),
+                                     id=menu_item_id
+                                     )
+
+    return menu_item
+
+
+def get_menu_items_for_dataset(dataset, session_store):
+    menu_items = [get_single_menu_item(dataset, session_store, 'CSV'),
+                  get_single_menu_item(dataset, session_store, 'SHP')]
+
+    if dataset.dataset_type.name == 'BATHYMETRY_DATA':
+        menu_items.append(get_single_menu_item(dataset, session_store, 'TIFF'))
+
+    menu_dropdown = dmc.MenuDropdown(
+        children=
+        [
+            dmc.MenuLabel("Format"),
+            *menu_items
+        ],
+        style={'width': '100%'}
+    )
+
+    return menu_dropdown
+
+
 def get_datasets_from_db(datasets_filter, session_store):
     dataset_papers = []
     datasets: List[DatasetsWithDatasetTypeDTO] = DatasetService.get_datasets(session=session_store,
@@ -153,33 +226,7 @@ def get_datasets_from_db(datasets_filter, session_store):
                                                                       size="lg",
                                                                       color='lime'
                                                                   ), style={'width': '100%'}, variant='outline')),
-                                        dmc.MenuDropdown(children=
-                                        [
-                                            dmc.MenuLabel("Format"),
-                                            dmc.MenuItem(
-                                                "CSV",
-                                                href=file_download_link(dataset=dataset,
-                                                                        session_store=session_store, dtype='csv'),
-                                                target="_blank",
-                                                icon=DashIconify(icon="iwwa:csv", color="lime"),
-                                            ),
-                                            dmc.MenuItem("Raster",
-                                                         icon=DashIconify(icon="vaadin:raster", color="lime"),
-                                                         href=file_download_link(dataset=dataset,
-                                                                                 session_store=session_store,
-                                                                                 dtype='raster'),
-                                                         target="_blank"
-                                                         ),
-                                            dmc.MenuItem("Shapefile",
-                                                         icon=DashIconify(icon="gis:shape-file", color="lime"),
-                                                         href=file_download_link(dataset=dataset,
-                                                                                 session_store=session_store,
-                                                                                 dtype='zip'),
-                                                         target="_blank"
-                                                         )
-                                        ],
-                                            style={'width': '100%'}
-                                        ),
+                                        get_menu_items_for_dataset(dataset, session_store),
                                     ],
                                     trigger="hover",
                                     style={'width': '100%'},
