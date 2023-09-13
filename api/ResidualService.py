@@ -88,8 +88,8 @@ class ResidualService:
             else:
                 sample_rate = f'{survey_sampling_rate}s'
 
-        df_obs = df_obs[~df_obs.index.duplicated(keep='first')]
-        df_obs = df_obs.resample(sample_rate).interpolate(method='linear', limit=5, limit_direction='both')
+            df_obs = df_obs[~df_obs.index.duplicated(keep='first')]
+            df_obs = df_obs.resample(sample_rate).interpolate(method='linear', limit=5, limit_direction='both')
 
         df_obs = df_obs[(df_obs.index >= df_surf.index.min()) & (df_obs.index <= df_surf.index.max())]
 

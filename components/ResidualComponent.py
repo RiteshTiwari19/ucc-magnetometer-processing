@@ -61,8 +61,14 @@ def get_mag_data_page(session, configured_du):
                      'alignItems': 'space-between',
                      'justifyContent': 'flex-start'
                  }),
+
         html.Div(id="selected-data-div"),
-        dmc.Divider(size=4, color='gray', variant='dashed', style={'marginTop': '1em', 'marginBottom': '1.2em'}),
+        dmc.Divider(size=3,
+                    color='gray', variant='dashed', style={'marginTop': '1em', 'marginBottom': '1.5em'}),
+        dmc.Text("Residual Filters",
+                 style={"fontSize": 20, "color": "#009688"}),
+        html.Br(),
+
         dmc.Group([
             dmc.Stack(
                 children=[
@@ -379,8 +385,8 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if AppConfig.POINTS_TO_CLIP not in local_storage:
         local_storage[AppConfig.POINTS_TO_CLIP] = {}
     else:
-        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT not in local_storage[AppConfig.POINTS_TO_CLIP]:
-            local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = []
+        if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] not in local_storage[AppConfig.POINTS_TO_CLIP]:
+            local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] = []
 
     ct = callback_context
     triggered = ct.triggered_id
@@ -405,15 +411,15 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     min_mag_ret = min_mag if triggered == "reset-clp-btn" and reset_clip else no_update
     max_mag_ret = max_mag if triggered == "reset-clp-btn" and reset_clip else no_update
 
-    session_store_patch = Patch() if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] \
+    session_store_patch = Patch() if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP] \
         else no_update
 
     dataset_level_clips = []
 
-    if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[
+    if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[
         AppConfig.POINTS_TO_CLIP] and triggered != 'reset-clp-btn':
-        if len(local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]) > 0:
-            cp = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+        if len(local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]]) > 0:
+            cp = local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]]
             df.loc[np.array(cp).min():np.array(cp).max() + 1, 'Magnetic_Field'] = np.nan
 
             df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
@@ -423,8 +429,8 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if triggered == "reset-clp-btn":
         cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
         cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
-        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP]:
-            del session_store_patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+        if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP]:
+            del session_store_patch[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]]
         session['LAST_CLICKED'] = 'RESET_CLIP'
 
     if triggered == 'clip-button' and clip:
@@ -449,8 +455,8 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
         if triggered == 'clip-button' and not condition and clip:
             return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
-            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] \
+            if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP] else []
 
         points_to_clip = points_to_clip + dataset_level_clips
         df = ResidualService.ResidualService.calculate_residuals(df, df_name=None,
@@ -460,16 +466,16 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
                                                                  session_store=session)
 
     if not show_residuals:
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
-            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] \
+            if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP] else []
         points_to_clip = points_to_clip + dataset_level_clips
 
         fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
                                                 col_to_plot='Magnetic_Field',
                                                 points_to_clip=points_to_clip)
     else:
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
-            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] \
+            if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP] else []
         points_to_clip = points_to_clip + dataset_level_clips
 
         fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
@@ -480,12 +486,16 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
     if triggered == 'show-next-residual-plot':
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = \
             min(session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] + 50000, len(df))
+
     elif triggered == 'show-previous-residual-plot':
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = \
             max(session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] - 50000, 0)
 
     start = int(session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET])
     end = min(start + 50000, len(df))
+
+    if start == len(df):
+        start = session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = 0
 
     custom_data = 'id' if 'id' in df.columns else None
 
@@ -696,10 +706,10 @@ def manage_sidebar_button_state(selected_data, local_storage):
         if AppConfig.POINTS_TO_CLIP not in local_storage:
             local_storage[AppConfig.POINTS_TO_CLIP] = {}
 
-        if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT not in local_storage[AppConfig.POINTS_TO_CLIP]:
-            patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] = points_to_clip
+        if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] not in local_storage[AppConfig.POINTS_TO_CLIP]:
+            patch[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] = points_to_clip
         else:
-            patch[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT].extend(points_to_clip)
+            patch[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]].extend(points_to_clip)
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = points_to_clip[0]
 
         return False, "red", patch
@@ -716,8 +726,8 @@ def manage_sidebar_button_state(selected_data, local_storage):
 )
 def clip_points(clip_btn, existing_clicks, session_store):
     existing_clicks = existing_clicks or 0
-    if clip_btn and AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in session_store[AppConfig.POINTS_TO_CLIP] \
-            and len(session_store[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]) > 0:
+    if clip_btn and session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in session_store[AppConfig.POINTS_TO_CLIP] \
+            and len(session_store[AppConfig.POINTS_TO_CLIP][session_store[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]]) > 0:
         return existing_clicks + 1
     else:
         return no_update
@@ -761,8 +771,8 @@ def print_selected_data(btn_clicked, selected_data, observed_smoothing, ambient_
         if AppConfig.POINTS_TO_CLIP not in local_storage:
             local_storage[AppConfig.POINTS_TO_CLIP] = {}
 
-        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] \
-            if AppIDAuthProvider.CURRENT_ACTIVE_PROJECT in local_storage[AppConfig.POINTS_TO_CLIP] else []
+        points_to_clip = local_storage[AppConfig.POINTS_TO_CLIP][local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]] \
+            if local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT] in local_storage[AppConfig.POINTS_TO_CLIP] else []
         df_resid = ResidualService.ResidualService.calculate_residuals(df, None,
                                                                        observed_smoothing_constant=observed_smoothing,
                                                                        ambient_smoothing_constant=ambient_smoothing,

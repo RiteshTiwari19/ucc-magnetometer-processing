@@ -183,7 +183,7 @@ def switch_workspace_tab_outer(app: dash.Dash, du):
 
         elif at == "mag_data_interpolation":
             visibility_patch['visibility'] = 'hidden'
-            return [no_update, no_update, no_update, InterpolationComponent.get_interpolation_page(session_store)]
+            return [no_update, no_update, no_update, InterpolationComponent.get_interpolation_page(session)]
         else:
             raise PreventUpdate
 

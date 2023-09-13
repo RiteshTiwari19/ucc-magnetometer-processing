@@ -1,1 +1,1 @@
-imports = ("components.NotificationProvider", "components.FileUploadTabs")
+imports = ("components.NotificationProvider", "components.FileUploadTabs", "components.InterpolationComponent")

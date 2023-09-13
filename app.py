@@ -39,19 +39,22 @@ CONTENT_STYLE = {
 def download(path):
     """Serve a file from the upload directory."""
     root_dir = os.path.dirname(os.getcwd())
-    dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'processed')
+    dir = os.path.join(root_dir, 'mag-project', 'data', 'Ritesh Tiwari', 'downloads')
 
-    azr_path = path.split('____')[-1]
+    local_path = path.split('____')[-1]
     path = path.split('____')[0]
 
     if not os.path.exists(f"{dir}/{path}"):
         if path.endswith('csv'):
-            ExportUtils.export_csv(dataset_path=azr_path, dataset_id=None, session=session)
+            ExportUtils.export_csv(dataset_path=local_path, dataset_id=None, session=session)
         elif path.endswith('zip'):
-            dir_out, path = ExportUtils.export_shp_file(dataset_path=azr_path, session=session, dataset_id=None)
+            dir_out, path = ExportUtils.export_shp_file(dataset_path=local_path, session=session, dataset_id=None)
             dir = dir + dir_out
+        elif path.endswith('tiff'):
+            return send_from_directory(dir, local_path, as_attachment=True)
 
-    return send_from_directory(dir, path, as_attachment=True)
+
+    return send_from_directory(dir, local_path, as_attachment=True)
 
 
 app.layout = dmc.MantineProvider(

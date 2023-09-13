@@ -366,7 +366,7 @@ def filter_datasets(n_clicks, dataset_name_query, project_query, dataset_type_qu
     if not n_clicks:
         raise PreventUpdate
     else:
-        dataset_state_query = dataset_state_query or ['DETACHED']
+        dataset_state_query = dataset_state_query
         dataset_filter_dto: DatasetFilterDTO = DatasetFilterDTO()
 
         dataset_filter_dto.states = ';'.join(dataset_state_query)

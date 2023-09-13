@@ -137,6 +137,11 @@ def get_diurnal_correction_page(session_store):
                      'justifyContent': 'flex-start'
                  }),
 
+        dmc.Divider(size=3,
+                    color='gray', variant='dashed', style={'marginTop': '1em', 'marginBottom': '1.5em'}),
+        dmc.Text("Select Datasets", weight=500,
+                 style={"fontSize": 20, "color": "#009688"}),
+
         dmc.Group([
             dmc.Select(
                 placeholder='Select Survey Data',
@@ -202,7 +207,8 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
 
     dataset: DatasetResponse = [d.dataset for d in project.datasets if d.dataset.id == dataset_id][0]
 
-    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path']:
+    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path'] \
+            and os.path.exists(dataset.tags['local_path'][dataset.id]):
         if start_idx is not None and end_idx is not None:
 
             ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id],
@@ -210,7 +216,7 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         else:
             ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id])
 
-        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
+        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'], format='mixed')
 
         if 'Observation Dates' not in dataset.tags:
             min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
@@ -241,7 +247,7 @@ def get_or_download_dataframe(project: ProjectsOutput, session_store, dataset_ty
         ret_df = pd.read_csv(download_path, skiprows=lambda x: x > end_idx or x < start_idx)
     else:
         ret_df = pd.read_csv(download_path)
-        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'])
+        ret_df['Datetime'] = pd.to_datetime(ret_df['Datetime'], format='mixed')
 
     if 'Observation Dates' not in updated_dataset.tags:
         min_date = ret_df['Datetime'].min().strftime("%m/%d/%Y")
@@ -457,12 +463,14 @@ def hide_dataset_selection_div(n_clicks, survey_state, observatory_state):
     ct = callback_context
     button_id = ct.triggered_id
     if button_id['idx'] == 'select-survey-dataset':
-        if n_clicks[0]:
+        clicked = n_clicks[0] if len(n_clicks) == 1 else n_clicks[1]
+        if clicked:
             return "show-div-simple" if survey_state == "hide-div-simple" else "hide-div-simple", no_update
         else:
             return no_update, no_update
     elif button_id['idx'] == 'select-observatory-dataset':
-        if n_clicks[1]:
+        clicked = n_clicks[0] if len(n_clicks) == 1 else n_clicks[1]
+        if clicked:
             return no_update, "show-div-simple" if observatory_state == "hide-div-simple" else "hide-div-simple"
         else:
             return no_update, no_update
