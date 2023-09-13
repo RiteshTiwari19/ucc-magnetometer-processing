@@ -91,50 +91,25 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
 def get_single_menu_item(dataset, dataset_format):
     if dataset_format == 'CSV':
         menu_item_id = {'subset': 'csv-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
-        if 'export' in dataset.tags and 'CSV' in dataset.tags['export']:
-            menu_item = dmc.MenuItem(
-                "CSV",
-                href=file_download_link(dataset=dataset, data_type='CSV'),
-                target="_blank",
-                icon=DashIconify(icon="iwwa:csv", color="lime"),
-                id=menu_item_id
-            )
-        else:
-            menu_item = dmc.MenuItem(
-                "CSV",
-                id=menu_item_id,
-                icon=DashIconify(icon="iwwa:csv", color="lime"))
+        menu_item = dmc.MenuItem(
+            "CSV",
+            id=menu_item_id,
+            icon=DashIconify(icon="iwwa:csv", color="lime"))
 
     elif dataset_format == 'SHP':
         menu_item_id = {'subset': 'shp-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
-        if 'export' in dataset.tags and 'ShapeFile' in dataset.tags['export']:
-            menu_item = dmc.MenuItem("Shapefile",
-                                     icon=DashIconify(icon="gis:shape-file", color="lime"),
-                                     href=file_download_link(dataset=dataset,
-                                                             data_type='ShapeFile'),
-                                     id=menu_item_id,
-                                     target="_blank"
-                                     )
-        else:
-            menu_item = dmc.MenuItem("Shapefile",
-                                     icon=DashIconify(icon="gis:shape-file", color="lime"),
-                                     id=menu_item_id
-                                     )
+
+        menu_item = dmc.MenuItem("Shapefile",
+                                 icon=DashIconify(icon="gis:shape-file", color="lime"),
+                                 id=menu_item_id
+                                 )
     else:
         menu_item_id = {'subset': 'raster-export-item', 'action': 'export', 'type': 'btn', 'dataset_id': dataset.id}
-        if 'export' in dataset.tags and 'Raster' in dataset.tags['export']:
-            menu_item = dmc.MenuItem("Raster",
-                                     icon=DashIconify(icon="vaadin:raster", color="lime"),
-                                     href=file_download_link(dataset=dataset,
-                                                             data_type='Raster'),
-                                     target="_blank",
-                                     id=menu_item_id
-                                     )
-        else:
-            menu_item = dmc.MenuItem("Raster",
-                                     icon=DashIconify(icon="vaadin:raster", color="lime"),
-                                     id=menu_item_id
-                                     )
+
+        menu_item = dmc.MenuItem("Raster",
+                                 icon=DashIconify(icon="vaadin:raster", color="lime"),
+                                 id=menu_item_id
+                                 )
 
     return menu_item
 
@@ -273,12 +248,14 @@ clientside_callback(
 
 clientside_callback(
     """
-    function(nc1, opened) {
+    function(nc1, nc2, opened) {
         return opened ? false: true
     }
     """,
     Output("modal-export_dataset", "opened"),
     Input("export-modal-close-button", "n_clicks"),
+    Input({'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request', 'index': ALL, 'format': ALL},
+          'n_clicks'),
     State("modal-export_dataset", "opened"),
     prevent_initial_call=True,
 )
@@ -475,6 +452,39 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
             idx += 1
             tag_buttons.append(btn_to_add)
 
+        tag = 'EXPORT'
+        values = []
+        if key == 'export' and len(dataset.tags[key].keys()) > 0:
+            for key_inner, value_inner in dataset.tags[key].items():
+                lnk_btn = dbc.Button(
+                    key_inner,
+                    href="/download/{}.{}".format(dataset.id, key_inner),
+                    target="_blank",
+                    external_link=True,
+                    outline=True,
+                    color='primary'
+                )
+
+                values.append(lnk_btn)
+
+            download_group_children = []
+
+            for idx, btn in enumerate(values):
+                if idx != len(values) - 1:
+                    download_group_children.append(btn)
+                else:
+                    download_group_children.append(btn)
+
+            download_group = dmc.Group(
+                children=[
+                    dmc.Title(tag.upper(), order=5),
+                    dbc.ButtonGroup(
+                        children=download_group_children,
+                        size='sm'
+                    )])
+
+            tag_buttons.append(download_group)
+
     for project in dataset.projects:
         btn_id = f'dataset-disabled-tag-btn-{idx}'
 
@@ -503,7 +513,7 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
     prevent_initial_call=True
 )
 def configure_export(trigger, local_storage):
-    if not callback_context.triggered:
+    if not callback_context.triggered or not any(click for click in trigger):
         raise PreventUpdate
 
     triggered_id = callback_context.triggered_id
@@ -579,7 +589,8 @@ def configure_export(trigger, local_storage):
 
 @callback(
     Output('local', 'data', allow_duplicate=True),
-    Input({'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request', 'index': ALL, 'format': ALL}, 'n_clicks'),
+    Input({'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request', 'index': ALL, 'format': ALL},
+          'n_clicks'),
     State('export-dataset-columns', 'value'),
     State('local', 'data'),
     prevent_initial_call=True

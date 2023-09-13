@@ -697,6 +697,8 @@ def set_data_for_interpolation_state(
             )
             created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
         else:
+            print(f'Updating existing Residual dataset with id: {new_dataset_id}')
+
             updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset_id,
                                                             session_store=session_store,
                                                             dataset_update_dto=DatasetUpdateDTO(

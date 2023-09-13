@@ -786,6 +786,8 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                         )
                         created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=session_store)
                     else:
+                        print(f'Updating existing diurnal correction dataset with id: {new_dataset_id}')
+
                         updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset_id,
                                                                         session_store=session_store,
                                                                         dataset_update_dto=DatasetUpdateDTO(
@@ -799,11 +801,6 @@ def set_data_for_mag_stage(skip_button, next_button, session_store):
                             'linked': False
                         })
                     uploader_thread.start()
-                    #
-                    # BlobConnector.upload_blob(blob_name=azr_path,
-                    #                           local_file_path=new_file_path,
-                    #                           linked=False,
-                    #                           user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID])
 
                     cache.delete_memoized(DatasetService.get_dataset_by_id)
                     cache.delete_memoized(ProjectService.get_project_by_id)

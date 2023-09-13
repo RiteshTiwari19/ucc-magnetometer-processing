@@ -57,6 +57,15 @@ def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_
     fig_raster.set_xlabel('Easting')
     fig.colorbar(im, ax=ax)
 
+    df_save_path = os.path.join(
+        AppConfig.PROJECT_ROOT,
+        "data",
+        tiff_name.split('----')[1],
+        "downloads",
+        f"{tiff_name.split('----')[0]}-{tiff_name.split('----')[2]}.csv"
+    )
+
+    total_grid_df_filtered.reset_index().to_csv(df_save_path)
     return fig
 
 

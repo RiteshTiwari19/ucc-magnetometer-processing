@@ -1,5 +1,8 @@
 import base64
 import os
+import shutil
+import threading
+import uuid
 from io import BytesIO
 
 import dash_bootstrap_components as dbc
@@ -18,9 +21,10 @@ from FlaskCache import cache
 from api import InterpolationService
 from api.DatasetService import DatasetService
 from api.ProjectsService import ProjectService
-from api.dto import DatasetResponse, DatasetUpdateDTO
+from api.dto import DatasetResponse, DatasetUpdateDTO, CreateNewDatasetDTO, CreateDatasetDTO
 from auth import AppIDAuthProvider
 from components import ResidualComponent
+from utils.AzureContainerHelper import BlobConnector
 from utils.ExportUtils import ExportUtils
 
 
@@ -77,7 +81,18 @@ def get_interpolation_page(session):
                                )
                 ], id='interpolated-raster-parent-group'),
             loaderProps={"variant": "dots", "color": "orange", "size": "xl"}
-        )
+        ),
+        html.Br(),
+        html.Div(
+            dmc.Group(
+                dmc.Button(
+                    "Done",
+                    color='green',
+                    variant='Filled',
+                    id='finish-interpolation-page'
+                )
+            )
+        , className='fix-bottom-right')
 
     ],
         style={
@@ -303,3 +318,119 @@ def show_contours(checked, col_to_interpolate):
         fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
 
         return fig_bar_matplotlib
+
+
+@callback(
+    Output("tabs", "active_tab", allow_duplicate=True),
+    Input("finish-interpolation-page", "n_clicks"),
+    State("interpolation-placeholder", "children"),
+    State("local", "data"),
+    prevent_initial_call=True
+)
+def finish_interpolation(btn_clicked, tiff_name, local_storage):
+    triggered = callback_context.triggered
+
+    if not triggered or not btn_clicked:
+        raise PreventUpdate
+    else:
+        tiff_source_path = os.path.join(
+            AppConfig.PROJECT_ROOT,
+            'data',
+            session[AppIDAuthProvider.APPID_USER_NAME],
+            'downloads',
+            f"{tiff_name.split('----')[0]}-{tiff_name.split('----')[2]}.tiff"
+        )
+
+        df_source_path = os.path.join(
+            AppConfig.PROJECT_ROOT,
+            "data",
+            tiff_name.split('----')[1],
+            "downloads",
+            f"{tiff_name.split('----')[0]}-{tiff_name.split('----')[2]}.csv"
+        )
+
+        is_update = False
+
+        project_id = local_storage[AppIDAuthProvider.CURRENT_ACTIVE_PROJECT]
+        active_project = ProjectService.get_project_by_id(session=local_storage,
+                                                          project_id=project_id)
+        parent_dataset_id = session[AppConfig.WORKING_DATASET]
+        existing_dataset = DatasetService.get_dataset_by_id(parent_dataset_id,
+                                                            session_store=local_storage)
+        is_update = False
+        existing_dataset_id = None
+        existing_tags = None
+        for dat in active_project.datasets:
+            if str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
+                    and dat.dataset.tags['state'] == 'INTERPOLATED':
+                is_update = True
+                existing_dataset_id = dat.dataset.id
+                existing_tags = dat.dataset.tags
+
+        new_dataset_id = str(uuid.uuid4()) if not is_update else existing_dataset_id
+
+        df_destination_path = os.path.join(AppConfig.PROJECT_ROOT, "data",
+                                           tiff_name.split('----')[1],
+                                           "exported",
+                                           f'{new_dataset_id}.csv'
+                                           )
+
+        tiff_destination_path = os.path.join(
+            AppConfig.PROJECT_ROOT,
+            'data',
+            tiff_name.split('----')[1],
+            'exported',
+            f"{new_dataset_id}.tiff"
+        )
+
+        shutil.copyfile(src=df_source_path, dst=df_destination_path)
+        shutil.copyfile(src=tiff_source_path, dst=tiff_destination_path)
+
+        azr_path = '{}.csv'.format(new_dataset_id)
+
+        try:
+            if not is_update:
+
+                link_state = 'INTERPOLATED'
+                tags = {'state': link_state}
+                tags['export'] = {'Raster': f'{new_dataset_id}.tiff'}
+
+                if 'Observation Dates' in existing_dataset.tags:
+                    tags['Observation Dates'] = existing_dataset.tags['Observation Dates']
+
+                new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+                    dataset=CreateDatasetDTO(
+                        parent_dataset_id=parent_dataset_id,
+                        id=new_dataset_id,
+                        name=existing_dataset.name,
+                        dataset_type_id=existing_dataset.dataset_type.id,
+                        project_id=project_id,
+                        path=f"datasets/{local_storage[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                        tags=tags
+                    ),
+                    project_dataset_state=link_state
+                )
+                created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=local_storage)
+            else:
+                print(f'Updating existing interpolation dataset with id: {new_dataset_id}')
+                updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset_id,
+                                                                session_store=local_storage,
+                                                                dataset_update_dto=DatasetUpdateDTO(
+                                                                    tags=existing_tags))
+
+            uploader_thread = threading.Thread(
+                target=BlobConnector.upload_blob, kwargs={
+                    'blob_name': azr_path,
+                    'user_id': local_storage[AppIDAuthProvider.APPID_USER_BACKEND_ID],
+                    'local_file_path': df_destination_path,
+                    'linked': False
+                })
+            uploader_thread.start()
+
+            cache.delete_memoized(DatasetService.get_dataset_by_id)
+            cache.delete_memoized(ProjectService.get_project_by_id)
+
+            session[AppConfig.WORKING_DATASET] = new_dataset_id
+            return "projects"
+        except:
+            pass
