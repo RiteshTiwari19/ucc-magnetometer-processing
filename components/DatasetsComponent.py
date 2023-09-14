@@ -1,25 +1,21 @@
 import time
 from typing import List
-from urllib.parse import quote as urlquote
 
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import pandas as pd
 from dash import State, html, Input, Output, ALL, callback, clientside_callback, MATCH, callback_context, \
-    no_update, Patch
+    no_update
 from dash import dcc
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
-import AppConfig
 from Celery import background_callback_manager
-from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
 from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO
-from components import Toast, NotificationProvider
-from dataservices.InMemoryQueue import InMemoryQueue
+from components import Toast
 from dataservices.RedisQueue import RedisQueue
 from utils.Consts import Consts
 from utils.ExportUtils import ExportUtils

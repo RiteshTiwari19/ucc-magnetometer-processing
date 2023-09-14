@@ -11,7 +11,6 @@ from shapely.geometry import Point
 import AppConfig
 from api.DatasetService import DatasetService
 from components import NotificationProvider
-from dataservices.InMemoryQueue import InMemoryQueue
 from utils.AzureContainerHelper import BlobConnector
 from auth import AppIDAuthProvider
 from utils.Consts import Consts
