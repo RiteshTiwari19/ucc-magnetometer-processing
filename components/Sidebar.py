@@ -62,15 +62,15 @@ sidebar = html.Div(dbc.Navbar(
                                 href="/dashboard/datasets", active="exact", id={"type": "sidebar-menu", "index": 2},
                                 style={'color': '#ffab91'}, class_name='zoom'),
                             dbc.NavLink(
-                                [html.I(className="fa-solid fa-chart-line", id={"type": "sidebar-icon", "index": 3}),
-                                 html.Div("Explore", style={'display': 'inline', 'marginLeft': '10px'}),
+                                [html.I(className="fa-solid fa-marker", id={"type": "sidebar-icon", "index": 3}),
+                                 html.Div("Annotate", style={'display': 'inline', 'marginLeft': '10px'}),
                                  dbc.Popover(trigger='hover',
                                              target={"type": "sidebar-menu", "index": 3},
                                              id={"type": "sidebar-hover", "index": 3},
                                              className='d-none'
                                              )
                                  ],
-                                href="/dashboard/explore", active="exact", id={"type": "sidebar-menu", "index": 3},
+                                href="/dashboard/annotate", active="exact", id={"type": "sidebar-menu", "index": 3},
                                 style={'color': '#ffab91'}, class_name='zoom')
                         ])
                     ]),
@@ -126,8 +126,8 @@ def hover(app: dash.Dash):
             },
             {
                 'index': 3,
-                'classes': 'fa-solid fa-chart-line',
-                'hover_class': 'fa-solid fa-chart-line fa-flip'
+                'classes': 'fa-solid fa-marker',
+                'hover_class': 'fa-solid fa-marker fa-flip'
             },
             {
                 'index': 4,

@@ -142,7 +142,7 @@ def render_page_content(pathname):
         return Workspaces.get_workspaces_html(len(InMermoryDataService.WorkspaceService.workspaces)), patch
     elif pathname == "/dashboard/datasets":
         return FileUploadTabs.datasets_tabs, patch
-    elif pathname == "/dashboard/explore":
+    elif pathname == "/dashboard/annotate":
         return html.P("Oh cool, this is page 2!"), patch
     elif pathname == "/dashboard/settings":
         return Settings.get_settings_page(session), patch
