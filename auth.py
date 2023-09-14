@@ -25,6 +25,12 @@ class AppIDAuthProvider:
     # OAUTH_SERVER_URL = os.environ["APPID_OAUTH_SERVER_URL"]
     # JWKS_URL = os.environ["JWKS_URL"]
 
+    CLIENT_ID = '09b59e37-7e0e-4c72-944a-12f78cf303bd'
+    TENANT_ID = 'a86401e1-b018-4775-9122-b0df1017c384'
+    CLIENT_SECRET = 'bSn8Q~pYofN015ihkxssTP3Hkv2iWO3OKQ6aabSP'
+    REDIRECT_URI = 'http://localhost:8050/afterauth'
+    OAUTH_SERVER_URL = 'https://login.microsoftonline.com/a86401e1-b018-4775-9122-b0df1017c384/oauth2/v2.0'
+    JWKS_URL = 'https://login.microsoftonline.com/common/discovery/keys'
 
     # Session
 
