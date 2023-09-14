@@ -234,7 +234,8 @@ def enable_interpolation_button(grid_spacing, col_to_interpolate, interpolation_
     State("interpolation-type-select", "value"),
     State("interpolation-placeholder", "children"),
     State("local", "data"),
-    progress=Output("notify-container-placeholder-div", "children"),
+    background=True,
+    manager=background_callback_manager,
     prevent_initial_call=True
 )
 def verde_interpolate(interpolation_button, spacing, col_to_interpolate, interpolation_type, id_placeholder,

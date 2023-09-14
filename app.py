@@ -15,7 +15,6 @@ from auth import AppIDAuthProvider
 from components import FileUploadTabs, Sidebar, Settings, Workspaces, Toast, \
     ModalComponent, NotificationProvider
 from dataservices import InMermoryDataService
-from dataservices.InMemoryQueue import InMemoryQueue
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
 

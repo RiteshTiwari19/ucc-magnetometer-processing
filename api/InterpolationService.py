@@ -1,5 +1,6 @@
 import math
 import os
+import time
 
 import pandas as pd
 import rasterio
@@ -13,19 +14,34 @@ from rasterio.plot import show
 
 import AppConfig
 from FlaskCache import cache
+from dataservices.RedisQueue import RedisQueue
+from utils.Consts import Consts
 
 
 @cache.memoize(timeout=5000)
 def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_name):
+    redis_queue = RedisQueue(name='app-notifications')
+    start_time = time.time()
+
     coordinates = (np.array(df['Easting']), np.array(df['Northing']))
     region = vd.get_region((df.Easting, df.Northing))
+
+    redis_queue.put(f'interpolation;show__{Consts.LOADING_DISPLAY_STATE};Fitting;Fitting Interpolator to Data!')
 
     fitted_interpolator = fit_interpolator(interpolation_type=interpolation_type,
                                            spacing=spacing,
                                            coordinates=coordinates,
                                            interpolation_values=df[col_to_interpolate])
 
+    redis_queue.put(
+        f'interpolation;update__{Consts.LOADING_DISPLAY_STATE};Generating Grid;Generating Interpolation Grid with spacing {spacing}!')
+
+    time.sleep(2)
+
     grid = extract_grid(col_to_interpolate, fitted_interpolator, region, spacing)
+
+    redis_queue.put(
+        f'interpolation;update__{Consts.LOADING_DISPLAY_STATE};Masking;Generating Convex Hull to mask points!')
 
     grid = vd.convexhull_mask(coordinates, grid=grid)
 
@@ -33,6 +49,9 @@ def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_
     df_convex_hulled = df_convex_hulled.dropna(subset=[col_to_interpolate])
 
     df_splits = split_dataframe(df_convex_hulled)
+
+    redis_queue.put(
+        f'interpolation;update__{Consts.LOADING_DISPLAY_STATE}; Masking; Masking extrapolated points with a distance filter')
 
     grid_list = Parallel(n_jobs=6, backend="threading")(
         delayed(process_sub_grid)(df_i, coordinates, 400) for df_i in df_splits)
@@ -44,6 +63,13 @@ def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_
 
     total_grid = total_grid_df_filtered.to_xarray()
 
+    end_time = time.time()
+
+    diff = end_time - start_time
+
+    redis_queue.put(
+        f'interpolation;update__{Consts.LOADING_DISPLAY_STATE}; Grid Generated; Interpolated {len(total_grid_df_filtered)} points in  {diff} seconds')
+
     save_path = export_to_tiff(region=region, spacing=spacing,
                                grid=total_grid[col_to_interpolate], tiff_name=tiff_name)
 
@@ -51,7 +77,8 @@ def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_
     fig = plt.figure()
     ax = fig.gca()
 
-    fig_raster = show(rasterio.open(save_path), with_bounds=True, contour=False, title=f'{col_to_interpolate} Raster', ax=ax, cmap='RdBu_r')
+    fig_raster = show(rasterio.open(save_path), with_bounds=True, contour=False, title=f'{col_to_interpolate} Raster',
+                      ax=ax, cmap='RdBu_r')
     im = fig_raster.get_images()[0]
     fig_raster.set_ylabel('Northing')
     fig_raster.set_xlabel('Easting')
@@ -64,6 +91,9 @@ def verde_interpolate(df, col_to_interpolate, interpolation_type, spacing, tiff_
         "downloads",
         f"{tiff_name.split('----')[0]}-{tiff_name.split('----')[2]}.csv"
     )
+
+    redis_queue.put(
+        f'interpolation;update__{Consts.FINISHED_DISPLAY_STATE}; Done;Grid Generated')
 
     total_grid_df_filtered.reset_index().to_csv(df_save_path)
     return fig
