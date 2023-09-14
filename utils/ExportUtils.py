@@ -1,4 +1,6 @@
 import os.path
+import threading
+import time
 import uuid
 import shutil
 
@@ -8,8 +10,11 @@ from shapely.geometry import Point
 
 import AppConfig
 from api.DatasetService import DatasetService
+from components import NotificationProvider
+from dataservices.InMemoryQueue import InMemoryQueue
 from utils.AzureContainerHelper import BlobConnector
 from auth import AppIDAuthProvider
+from utils.Consts import Consts
 
 
 class ExportUtils:
@@ -53,7 +58,7 @@ class ExportUtils:
         return file_path
 
     @classmethod
-    def export_shp_file(cls, dataset_id, cols_to_export, session):
+    def export_shp_file(cls, dataset_id, cols_to_export, session, redis_queue=None):
 
         file_path = cls.download_data_if_not_exists(dataset_id=dataset_id, session=session)
 
@@ -62,18 +67,22 @@ class ExportUtils:
                                    session[AppIDAuthProvider.APPID_USER_NAME],
                                    "exported",
                                    dataset_id
-        )
+                                   )
         export_file_path = os.path.join(export_path, f"{dataset_id}.shp")
         zip_path = os.path.join(dataset_id, f"{dataset_id}.zip")
 
-        if os.path.exists(os.path.join(export_path, f"{dataset_id}.zip")):
-            return zip_path
+        # if os.path.exists(os.path.join(export_path, f"{dataset_id}.zip")):
+        #     return zip_path
 
         if 'Latitude' not in cols_to_export:
             cols_to_export.append('Latitude')
 
         if 'Longitude' not in cols_to_export:
             cols_to_export.append('Longitude')
+
+        redis_queue.put(f'data-export;update__{Consts.LOADING_DISPLAY_STATE};Generating Geometry;Converting csv to GeoPandas Dataframe!')
+
+        time.sleep(2)
 
         df = pd.read_csv(file_path, usecols=cols_to_export)
 
@@ -83,14 +92,20 @@ class ExportUtils:
         geometry = [Point(xy) for xy in zip(df['Longitude'], df['Latitude'])]
         gdf = gpd.GeoDataFrame(df, crs="EPSG:4326", geometry=geometry)
 
+
+        redis_queue.put(f'data-export;update__{Consts.LOADING_DISPLAY_STATE};Writing; Writing shape file to disk')
+
+        time.sleep(2)
+
         if not os.path.exists(export_path):
             os.mkdir(export_path)
 
         gdf.to_file(export_file_path)
+
+        redis_queue.put(f'data-export;update__{Consts.LOADING_DISPLAY_STATE};Archiving; Creating archive from shape file')
+        time.sleep(2)
+
         file_name = shutil.make_archive(dataset_id, 'zip', export_path, export_path)
-
-
         shutil.move(file_name, os.path.join(export_path, f'{dataset_id}.zip'))
 
         return zip_path
-

@@ -1,3 +1,4 @@
+import time
 from typing import List
 from urllib.parse import quote as urlquote
 
@@ -5,17 +6,22 @@ import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import pandas as pd
 from dash import State, html, Input, Output, ALL, callback, clientside_callback, MATCH, callback_context, \
-    no_update
+    no_update, Patch
 from dash import dcc
 from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
+import AppConfig
+from Celery import background_callback_manager
 from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
 from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO
-from components import Toast
+from components import Toast, NotificationProvider
+from dataservices.InMemoryQueue import InMemoryQueue
+from dataservices.RedisQueue import RedisQueue
+from utils.Consts import Consts
 from utils.ExportUtils import ExportUtils
 
 
@@ -173,7 +179,9 @@ def get_datasets_from_db(datasets_filter, session_store):
                                     dmc.Text(dataset.modified_at.strftime("%m/%d/%Y, %H:%M:%S"), color="dimmed",
                                              size='xs')
                                 ]),
-                                dmc.Group(generate_tag_badges(dataset), position='left', spacing='xs')
+                                dmc.Group(generate_tag_badges(dataset),
+                                          position='left',
+                                          spacing='xs')
                             ]),
 
                             dmc.Stack(children=[
@@ -212,12 +220,12 @@ def get_datasets_from_db(datasets_filter, session_store):
                                 )
                             ], id=f'dataset-btn-stack-{idx}')
                         ],
-                        position='apart', id='datasets-view-group'
+                        position='apart', id='datasets-view-group', noWrap=True
                     )
                 ],
                 radius='md',
                 shadow='lg',
-                p='md')
+                p='sm')
         dataset_papers.append(dataset_paper)
     return dataset_papers
 
@@ -519,6 +527,8 @@ def configure_export(trigger, local_storage):
     triggered_id = callback_context.triggered_id
     dataset = DatasetService.get_dataset_by_id(dataset_id=triggered_id['dataset_id'], session_store=local_storage)
 
+    print(local_storage)
+
     download_path = ExportUtils.download_data_if_not_exists(dataset_path=dataset.path,
                                                             dataset_id=dataset.id,
                                                             session=local_storage)
@@ -558,7 +568,7 @@ def configure_export(trigger, local_storage):
                 value=['Easting', 'Northing'],
                 data=df.columns,
                 placeholder='Select columns to export',
-                id='export-dataset-columns'
+                id={'type': 'multi-select', 'action': 'export-dataset-columns', 'subset': 'export-dataset'}
             ) if 'modal_title' != 'Raster Export' else dmc.Select(
                 label='Column to Interpolate',
                 data=df.columns,
@@ -591,17 +601,25 @@ def configure_export(trigger, local_storage):
     Output('local', 'data', allow_duplicate=True),
     Input({'type': 'btn', 'subset': 'export-datasets', 'action': 'export-dataset-request', 'index': ALL, 'format': ALL},
           'n_clicks'),
-    State('export-dataset-columns', 'value'),
+    State({'type': 'multi-select', 'action': ALL, 'subset': 'export-dataset'}, 'value'),
     State('local', 'data'),
-    prevent_initial_call=True
+    progress=Output("notify-container-placeholder-div", "children"),
+    prevent_initial_call=True,
+    background=True,
+    manager=background_callback_manager,
 )
-def process_export_request(btn_clicked, export_dataset_columns, local_storage):
+def process_export_request(set_progress, btn_clicked, export_dataset_columns, local_storage):
     triggered = callback_context.triggered
     default_cols = {'Easting', 'Northing'}
+
+    if len(export_dataset_columns) > 0 and type(export_dataset_columns[0]) is not str:
+        export_dataset_columns = export_dataset_columns[0]
+
     if not triggered or not any(click for click in btn_clicked):
-        raise PreventUpdate
+        return no_update
+
     elif default_cols.issubset(set(export_dataset_columns)) and len(default_cols) == len(export_dataset_columns):
-        raise PreventUpdate
+        return no_update
     else:
 
         triggered_id = callback_context.triggered_id
@@ -612,12 +630,22 @@ def process_export_request(btn_clicked, export_dataset_columns, local_storage):
         dataset = DatasetService.get_dataset_by_id(dataset_id=dataset_id,
                                                    session_store=local_storage)
 
+        redis_queue = RedisQueue(name='app-notifications')
+
         if export_format == 'csv':
+
+            redis_queue.put(f'data-export;show__{Consts.LOADING_DISPLAY_STATE};Processing;Loading CSV File!')
+
             exported_file_path = ExportUtils.export_csv(
                 dataset_id=dataset_id,
                 session=local_storage,
                 cols_to_export=export_dataset_columns
             )
+            time.sleep(1)
+
+            redis_queue.put(f'data-export;update__{Consts.LOADING_DISPLAY_STATE};Processing;Loaded CSV File!')
+
+            time.sleep(1)
 
             existing_tags = dataset.tags
             if 'export' not in existing_tags:
@@ -626,12 +654,17 @@ def process_export_request(btn_clicked, export_dataset_columns, local_storage):
                 existing_tags['export']['CSV'] = exported_file_path
 
         else:
+
+            redis_queue.put(f'data-export;show__{Consts.LOADING_DISPLAY_STATE};Processing;Loading Data File!')
+
+            time.sleep(1)
+
             exported_file_path = ExportUtils.export_shp_file(
                 dataset_id=dataset_id,
                 session=local_storage,
-                cols_to_export=export_dataset_columns
+                cols_to_export=export_dataset_columns,
+                redis_queue=redis_queue
             )
-
             existing_tags = dataset.tags
             if 'export' not in existing_tags:
                 existing_tags['export'] = {'ShapeFile': exported_file_path}
@@ -644,5 +677,8 @@ def process_export_request(btn_clicked, export_dataset_columns, local_storage):
         updated_dataset = DatasetService.update_dataset(dataset_id=dataset.id,
                                                         session_store=local_storage,
                                                         dataset_update_dto=DatasetUpdateDTO(tags=existing_tags))
+
+        redis_queue.put(f'data-export;update__{Consts.FINISHED_DISPLAY_STATE};Done;Exported File!')
+        redis_queue.close_connection()
 
         return no_update

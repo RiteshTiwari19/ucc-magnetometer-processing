@@ -4,17 +4,18 @@ import dash
 import dash_bootstrap_components as dbc
 import dash_mantine_components as dmc
 import dash_uploader as du
-from dash import dcc, html, Patch
+from dash import dcc, html, Patch, callback_context, no_update
 from dash.dependencies import Output, Input
+from dash.exceptions import PreventUpdate
+from flask import send_from_directory
 from flask import session
-from flask import Flask, send_from_directory
 
 from api.DatasetService import DatasetService
 from auth import AppIDAuthProvider
-from components import FileUploadTabs, DatasetsComponent, Sidebar, Settings, Workspaces, ResidualComponent, Toast, \
-    ModalComponent
+from components import FileUploadTabs, Sidebar, Settings, Workspaces, Toast, \
+    ModalComponent, NotificationProvider
 from dataservices import InMermoryDataService
-from utils.ExportUtils import ExportUtils
+from dataservices.InMemoryQueue import InMemoryQueue
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
 
@@ -59,9 +60,14 @@ app.layout = dmc.MantineProvider(
     children=dmc.NotificationsProvider(html.Div([
         dcc.Location(id="url"),
         dcc.Interval(id="auth-check-interval", interval=1500000),
-        html.Div(id='notify-container-placeholder-div'),
+        dcc.Interval(
+            id='notification-interval-component',
+            interval=7 * 1000,
+            n_intervals=0
+        ),
         dcc.Store(id='local', storage_type='local', data={}),
         html.Div([
+            html.Div(id='notify-container-placeholder-div'),
             html.Div(id='toast-placeholder-div'),
             html.Div([Sidebar.sidebar], style={'maxWidth': '20%', 'minWidth': '12%'}, id='sidebar_parent_div'),
             html.Div(html.Div(id="page-content", style=CONTENT_STYLE),
@@ -93,6 +99,28 @@ app.layout = dmc.MantineProvider(
 )
 
 Sidebar.hover(app)
+
+
+@app.callback(
+    Output("notify-container-placeholder-div", "children", allow_duplicate=True),
+    Input("notification-interval-component", "n_intervals"),
+    prevent_initial_call=True
+)
+def send_notification(inp):
+    triggered = callback_context.triggered
+    if not triggered or not inp:
+        raise PreventUpdate
+
+    notification = auth.redis_queue.get_nowait()
+
+    if notification:
+        notification = notification.split('__')
+        notification_meta = notification[0].split(';')
+        notification = NotificationProvider.notify(notification[1], action=notification_meta[1],
+                                                   notification_id=notification_meta[0])
+        return notification
+    else:
+        return no_update
 
 
 @app.callback(
