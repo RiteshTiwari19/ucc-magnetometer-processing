@@ -55,6 +55,9 @@ label.form-label {
     display: flex!important;
 }
 
+.show-div-flex {
+    display: flex!important;
+}
 
 .show-div-simple {
     display: inline-block!important;

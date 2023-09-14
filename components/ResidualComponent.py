@@ -65,7 +65,7 @@ def get_mag_data_page(session, configured_du):
         html.Div(id="selected-data-div"),
         dmc.Divider(size=3,
                     color='gray', variant='dashed', style={'marginTop': '1em', 'marginBottom': '1.5em'}),
-        dmc.Text("Residual Filters",
+        dmc.Text("Apply Smoothing Filters",
                  style={"fontSize": 20, "color": "#009688"}),
         html.Br(),
 
@@ -120,16 +120,16 @@ def get_mag_data_page(session, configured_du):
         dmc.Space(h='lg'),
 
         dmc.Group([
-            dmc.Switch(label="Display one plot per row?",
-                       checked=False,
-                       onLabel='YES',
-                       offLabel='NO',
-                       id='grid-conf',
-                       size='lg',
-                       color='teal',
-                       thumbIcon=DashIconify(
-                           icon="dashicons:yes-alt", width=16, color=dmc.theme.DEFAULT_COLORS["teal"][5])
-                       ),
+            # dmc.Switch(label="Display one plot per row?",
+            #            checked=False,
+            #            onLabel='YES',
+            #            offLabel='NO',
+            #            id='grid-conf',
+            #            size='lg',
+            #            color='teal',
+            #            thumbIcon=DashIconify(
+            #                icon="dashicons:yes-alt", width=16, color=dmc.theme.DEFAULT_COLORS["teal"][5])
+            #            ),
 
             html.Div(
                 dmc.Switch(label="Show residuals only?",
@@ -144,6 +144,11 @@ def get_mag_data_page(session, configured_du):
                            ),
                 className='hide-div', id='show-residuals-div'),
         ]),
+
+        html.Br(),
+
+        dmc.Text("Clip Residuals",
+                 style={"fontSize": 17, "color": "#009688"}),
 
         html.Br(),
 
@@ -162,7 +167,7 @@ def get_mag_data_page(session, configured_du):
                           ),
 
             dmc.Button("Clip", leftIcon=DashIconify(icon='mdi:clip', color='wine-red'),
-                       id='clip-button', variant='outline', disabled=True),
+                       id='clip-button', variant='outline', disabled=False),
 
             dmc.Button("Reset Clip", leftIcon=DashIconify(icon='bx:reset', color='wine-red'),
                        id='reset-clp-btn', variant='filled', color='blue'),
@@ -235,10 +240,50 @@ def get_mag_data_page(session, configured_du):
                     html.Br(),
                 ],
                     loaderProps={"variant": "dots", "color": "orange", "size": "xl"},
-                    className='plot-layout-full-stretch',
                     id={'type': 'plotly', 'location': 'residual', 'idx': 'residuals-plot'}
                 ),
                 html.Br(),
+
+                dmc.Center(
+                    dmc.Text("Show Filtered Residuals",
+                             style={"fontSize": 17, "color": "#009688"})
+                ),
+
+                html.Br(),
+                dmc.Group([
+                    dmc.NumberInput(
+                        label="Min Residual",
+                        description="Minimum value of Residuals to filter on",
+                        value=0,
+                        step=5,
+                        id='min-residual-value-filter'
+                    ),
+                    dmc.NumberInput(
+                        label="Max Residual",
+                        description="Maximum value of Residuals to filter on",
+                        value=0,
+                        step=5,
+                        id='max-residual-value-filter'
+                    ),
+
+                    dmc.Button(
+                        'Filter',
+                        variant='outline',
+                        color='primary',
+                        id='filter-residual-button'
+                    ),
+
+                    dmc.Button(
+                        'Reset Filter',
+                        variant='filled',
+                        color='wine-red',
+                        id='reset-residual-filter-button'
+                    )
+
+                ], grow=True, align='end'),
+
+                html.Br(),
+
                 dmc.LoadingOverlay(
                     html.Div(id='datasets-container-plot', style={'flex': 'auto', 'alignItems': 'center'},
                              children=dcc.Graph(figure=map_box)),
@@ -254,7 +299,7 @@ def get_mag_data_page(session, configured_du):
                 'flexDirection': 'column'
                 #    Responsible for creating the grids
             },
-            className='two-per-row'
+            className='one-per-row'
         ),
         html.Div(children=[
             dmc.Group(children=[
@@ -273,12 +318,7 @@ def get_mag_data_page(session, configured_du):
         ],
             className='fix-bottom-right')
 
-    ],
-        style={
-            'display': 'flex',
-            'flexDirection': 'column',
-            'width': '100%'
-        },
+    ]
     )
 
     return mag_data_page
@@ -369,16 +409,19 @@ def generate_tag_badges(active_project, session_store, skip_extra_styling=False)
     Input('show-residuals-switch', 'checked'),
     Input('clip-button', 'n_clicks'),
     Input('reset-clp-btn', 'n_clicks'),
+    Input('filter-residual-button', 'n_clicks'),
     State('ambient-smoothing-slider', 'value'),
     State('observed-smoothing-slider', 'value'),
     State('clip-min', 'value'),
     State('clip-max', 'value'),
+    State('min-residual-value-filter', 'value'),
+    State('max-residual-value-filter', 'value'),
     State('local', 'data'),
     prevent_initial_call=True
 )
 def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals, clip,
-                 reset_clip, ambient, observed,
-                 min_val, max_val, local_storage):
+                 reset_clip, show_filtered_residuals, ambient, observed,
+                 min_val, max_val, min_residual, max_residual, local_storage):
     if AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET not in session:
         session[AppIDAuthProvider.PLOTLY_SCATTER_PLOT_SUBSET] = 0
 
@@ -424,8 +467,6 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
             df.loc[cp, 'Magnetic_Field'] = np.nan
 
             df['Magnetic_Field'] = df['Magnetic_Field'].interpolate(method='linear')
-            # cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
-            # cache.delete_memoized(MapboxScatterPlot.get_mapbox_plot)
 
     if triggered == "reset-clp-btn":
         cache.delete_memoized(ResidualService.ResidualService.calculate_residuals)
@@ -475,7 +516,10 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
             AppConfig.POINTS_TO_CLIP] else []
         points_to_clip = points_to_clip + dataset_level_clips
 
-        fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
+        scatter_plot_df = df[(abs(df['Baseline']) >= min_residual) & (abs(df['Baseline']) <= max_residual)] if \
+            triggered == 'filter-residual-button' and show_filtered_residuals else df
+
+        fig = MapboxScatterPlot.get_mapbox_plot(df=scatter_plot_df, df_name=None,
                                                 col_to_plot='Magnetic_Field',
                                                 points_to_clip=points_to_clip)
     else:
@@ -485,7 +529,10 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
             AppConfig.POINTS_TO_CLIP] else []
         points_to_clip = points_to_clip + dataset_level_clips
 
-        fig = MapboxScatterPlot.get_mapbox_plot(df=df, df_name=None,
+        scatter_plot_df = df[(abs(df['Baseline']) >= min_residual) & (abs(df['Baseline']) <= max_residual)] if \
+            triggered == 'filter-residual-button' and show_filtered_residuals else df
+
+        fig = MapboxScatterPlot.get_mapbox_plot(df=scatter_plot_df, df_name=None,
                                                 col_to_plot='Baseline',
                                                 points_to_clip=points_to_clip
                                                 )
@@ -554,31 +601,32 @@ def plot_dataset(previous_button, next_button, calc_residual_btn, show_residuals
         "show-div", min_mag_ret, max_mag_ret, session_store_patch
 
 
-clientside_callback(
-    """
-    function(checked) {
-        if (checked) {
-            return "one-per-row"
-        } else {
-            return "two-per-row"
-        }
-    }
-    """,
-    Output("multi-plot-layout-flex", "className"),
-    Input('grid-conf', "checked")
-)
-
-
-@callback(
-    Output({'type': 'plotly', 'location': 'residual', 'idx': ALL}, "className"),
-    Input('grid-conf', "checked"),
-    State({'type': 'plotly', 'location': 'residual', 'idx': ALL}, "className")
-)
-def switch_plot_layout(checked, state):
-    if checked:
-        return ["plot-layout-full-stretch"] * len(state)
-    else:
-        return ["plot-layout-half-stretch"] * len(state)
+#
+# clientside_callback(
+#     """
+#     function(checked) {
+#         if (checked) {
+#             return "one-per-row"
+#         } else {
+#             return "two-per-row"
+#         }
+#     }
+#     """,
+#     Output("multi-plot-layout-flex", "className"),
+#     Input('grid-conf', "checked")
+# )
+#
+#
+# @callback(
+#     Output({'type': 'plotly', 'location': 'residual', 'idx': ALL}, "className"),
+#     Input('grid-conf', "checked"),
+#     State({'type': 'plotly', 'location': 'residual', 'idx': ALL}, "className")
+# )
+# def switch_plot_layout(checked, state):
+#     if checked:
+#         return ["plot-layout-full-stretch"] * len(state)
+#     else:
+#         return ["plot-layout-half-stretch"] * len(state)
 
 
 @callback(
@@ -751,7 +799,7 @@ def manage_sidebar_button_state(selected_data, local_storage):
 
 
 @callback(
-    Output('calc-residuals-btn', 'n_clicks'),
+    Output('calc-residuals-btn', 'n_clicks', allow_duplicate=True),
     Input('clip-side-panel', 'n_clicks'),
     State('calc-residuals-btn', 'n_clicks'),
     State('local', 'data'),
@@ -969,3 +1017,41 @@ clientside_callback(
     Input('clip-min', 'value'),
     Input('clip-max', 'value')
 )
+
+clientside_callback(
+    """
+    function(min_val, max_val) {
+        if ( isNaN(min_val) | isNaN(max_val) | min_val === "" | max_val === "" ) {
+            return true;
+        } else {
+            if (parseFloat(min_val) >= parseFloat(max_val)) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+    """,
+    Output('filter-residual-button', 'disabled'),
+    Input('min-residual-value-filter', 'value'),
+    Input('max-residual-value-filter', 'value')
+)
+
+
+@callback(
+    Output('calc-residuals-btn', 'n_clicks', allow_duplicate=True),
+    Input('reset-residual-filter-button', 'n_clicks'),
+    State('calc-residuals-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+def reset_filter(reset_filter_btn, existing_clicks):
+    triggered = callback_context.triggered
+
+    if not triggered or not reset_filter_btn:
+        raise PreventUpdate
+
+    existing_clicks = existing_clicks or 0
+    if reset_filter_btn:
+        return existing_clicks + 1
+    else:
+        return no_update

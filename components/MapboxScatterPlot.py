@@ -1,3 +1,5 @@
+import math
+
 import datashader as ds
 import datashader.transfer_functions as tf
 import plotly.express as px
@@ -7,7 +9,7 @@ from FlaskCache import cache
 from api import ResidualService
 
 
-@cache.memoize(timeout=5000000, args_to_ignore=['df'])
+@cache.memoize(timeout=5000000)
 def get_mapbox_plot(df,
                     df_name,
                     col_to_plot,
@@ -19,9 +21,14 @@ def get_mapbox_plot(df,
                     hover_name='Magnetic_Field',
                     hover_data='Magnetic_Field',
                     points_to_clip=None):
+    sampling_frequency = math.ceil(len(df) / 18000)
 
-    plot_df = df[::sampling_frequency].reset_index()
-    custom_data = plot_df['index']
+    print(f'Sampling at frequency: {sampling_frequency}')
+
+    plot_df = df[::sampling_frequency].reset_index() if len(df) > 18000 else df
+
+    plot_df = plot_df.reset_index()
+
     fig = px.scatter_mapbox(plot_df,
                             lat=latitude_col,
                             lon=longitude_col,
@@ -39,34 +46,6 @@ def get_mapbox_plot(df,
     fig.update_layout(margin={'r': 0, 't': 0, 'l': 0, 'b': 0})
     fig.update_layout(template='plotly_dark')
     return fig
-
-def get_mapbox_plot_uncached(df,
-                    df_name,
-                    col_to_plot,
-                    sampling_frequency=50,
-                    color_scale='icefire',
-                    latitude_col='Latitude',
-                    longitude_col='Longitude',
-                    color_column='Magnetic_Field',
-                    hover_name='Magnetic_Field',
-                    hover_data='Magnetic_Field'):
-
-    fig = px.scatter_mapbox(df[::sampling_frequency],
-                            lat=latitude_col,
-                            lon=longitude_col,
-                            hover_name=hover_name,
-                            hover_data=hover_data,
-                            color_continuous_scale=color_scale,
-                            zoom=8
-                            )
-
-    print('GET MAPBOX PLOT GOT CALLED')
-
-    fig.update_layout(mapbox_style='open-street-map')
-    fig.update_layout(margin={'r': 0, 't': 0, 'l': 0, 'b': 0})
-    fig.update_layout(template='plotly_dark')
-    return fig
-
 
 
 def get_mapbox_plot_raster(selected_dataset):
