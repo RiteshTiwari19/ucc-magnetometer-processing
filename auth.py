@@ -12,6 +12,7 @@ from flask import Flask, redirect, request, session
 from jwt.exceptions import ExpiredSignatureError
 
 from api import UserService
+from dataservices.RedisQueue import RedisQueue
 
 
 class AppIDAuthProvider:
@@ -49,6 +50,8 @@ class AppIDAuthProvider:
         cache.init_app(self.flask, config={
             'CACHE_TYPE': 'simple'
         })
+
+        self.redis_queue = RedisQueue(name='app-notifications')
 
         # self.flask.secret_key = os.environ["SESSION_SECRET_KEY"]
         self.flask.secret_key = "test.py-secret-key"
@@ -94,7 +97,7 @@ class AppIDAuthProvider:
                 elif "id_token" in resp_json and "access_token" in resp_json:
                     access_token = resp_json["access_token"]
                     id_token = resp_json["id_token"]
-                    print(f'id_token: {id_token}')
+                    # print(f'id_token: {id_token}')
                     user_email, user_id, roles, user_name = AppIDAuthProvider._get_user_info(resp_json["id_token"])
 
                     internal_user_id = UserService.UserService.get_user_by_id(
@@ -216,6 +219,7 @@ class AppIDAuthProvider:
         key = public_keys[kid]
 
         payload = jwt.decode(token, key=key, algorithms=['RS256'], audience=AppIDAuthProvider.CLIENT_ID)
+        print(session[AppIDAuthProvider.APPID_USER_TOKEN])
         print(payload)
         return payload
 
