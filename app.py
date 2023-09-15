@@ -13,7 +13,7 @@ from flask import session
 from api.DatasetService import DatasetService
 from auth import AppIDAuthProvider
 from components import FileUploadTabs, Sidebar, Settings, Workspaces, Toast, \
-    ModalComponent, NotificationProvider
+    ModalComponent, NotificationProvider, AnnotationComponent
 from dataservices import InMermoryDataService
 
 DASH_URL_BASE_PATHNAME = "/dashboard/"
@@ -143,7 +143,7 @@ def render_page_content(pathname):
     elif pathname == "/dashboard/datasets":
         return FileUploadTabs.datasets_tabs, patch
     elif pathname == "/dashboard/annotate":
-        return html.P("Oh cool, this is page 2!"), patch
+        return AnnotationComponent.get_annotation_page(session, du), patch
     elif pathname == "/dashboard/settings":
         return Settings.get_settings_page(session), patch
     # If the user tries to reach a different page, return a 404 message

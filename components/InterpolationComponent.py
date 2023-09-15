@@ -89,7 +89,8 @@ def get_interpolation_page(session):
                     "Done",
                     color='green',
                     variant='Filled',
-                    id='finish-interpolation-page'
+                    id='finish-interpolation-page',
+                    disabled=True
                 )
             )
         , className='fix-bottom-right')
@@ -143,7 +144,7 @@ def get_or_download_dataframe(session_store, dataset_id=None):
     unnamed_cols = [col for col in ret_df.columns if 'unnamed' in col.lower()]
     ret_df = ret_df.drop(columns=unnamed_cols)
 
-    if 'Magnetic_Field_Corrected' in ret_df.columns:
+    if 'Baseline' in ret_df.columns:
         ret_df.rename(columns={'Baseline': 'Residuals'}, inplace=True)
 
     return ret_df
@@ -319,6 +320,18 @@ def show_contours(checked, col_to_interpolate):
         fig_bar_matplotlib = f'data:image/png;base64,{fig_data}'
 
         return fig_bar_matplotlib
+
+
+@callback(
+    Output("finish-interpolation-page", "disabled"),
+    Input("interpolate-btn", "n_clicks")
+)
+def enable_finish_button(interpolate_btn):
+    triggered = callback_context.triggered
+    if not triggered or not interpolate_btn:
+        return True
+    else:
+        return False
 
 
 @callback(
