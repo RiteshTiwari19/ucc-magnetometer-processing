@@ -106,6 +106,7 @@ def get_mapbox_plot_annotated(
                             hover_name=hover_name,
                             hover_data=col_to_plot,
                             color=col_to_plot,
+                            custom_data='index',
                             color_continuous_scale=color_scale,
                             zoom=8
                             )

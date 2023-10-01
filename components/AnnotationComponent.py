@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import time
 import uuid
 from typing import List
@@ -17,6 +18,7 @@ from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 from flask import session
 import geopandas as gpd
+import plotly.express as px
 
 import AppConfig
 from Celery import background_callback_manager
@@ -24,10 +26,12 @@ from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
-from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO
+from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO, CreateNewDatasetDTO, \
+    CreateDatasetDTO
 from auth import AppIDAuthProvider
 from components import Toast, MapboxScatterPlot, DashUploader
 from dataservices.RedisQueue import RedisQueue
+from utils.AzureContainerHelper import BlobConnector
 from utils.Consts import Consts
 from utils.ExportUtils import ExportUtils
 
@@ -77,21 +81,45 @@ def get_annotation_page(session, du):
             ), id='mapbox-plot-place-holder', style={'width': '100%'})
     ], loaderProps={"variant": "dots", "color": "orange", "size": "xl"}, style={'width': '100%'})
 
+    scatter_plot = html.Div(id='scatter-plot-div', style={'width': '100%'})
+
+    save_group = html.Div(dmc.Group([
+        dbc.Button('Export',
+                   color='success',
+                   download=f'annotated.csv',
+                   href='',
+                   external_link=True,
+                   target="_blank",
+                   outline=True,
+                   disabled=True,
+                   id='export-annotated-dataset-btn',
+                   ),
+        dmc.Button("Save", variant='filled', color='success', id='save-annotated-dataset-btn'),
+    ]), className='fix-bottom-right')
+
     return dmc.Stack([
         title,
         dmc.Divider(size=3,
                     color='gray', variant='dashed',
                     style={'marginTop': '1em', 'marginBottom': '1.5em', 'width': '100%'}),
 
-        dmc.Text('Select Dataset', style={"fontSize": 17, "color": "#009688"}),
+        dmc.Text('Select Dataset', style={"fontSize": 19, "color": "#009688"}),
 
         select_dataset_group,
 
         html.Br(),
 
+        scatter_plot,
+
+        html.Br(),
+
         mapbox_plot_div,
 
-        get_upload_annotations_modal(du=du, session=session)
+        get_upload_annotations_modal(du=du, session=session),
+
+        save_group,
+
+        add_annotations_modal()
     ],
         align='center'
     )
@@ -127,6 +155,7 @@ def load_datasets(project_id, local_storage):
     if not triggered or not project_id:
         return no_update, no_update
 
+    cache.delete_memoized(ProjectsService.ProjectService.get_project_by_id)
     selected_project = ProjectsService.ProjectService.get_project_by_id(project_id=project_id, session=local_storage)
     datasets = [{'label': d.dataset.name, 'value': d.dataset.id} for d in selected_project.datasets \
                 if 'state' in d.dataset.tags and d.dataset.tags['state'] == 'RESIDUALS_COMPUTED']
@@ -150,7 +179,8 @@ def manage_load_data_btn_state(project, dataset):
 def get_or_download_dataframe(dataset_id, session_store):
     dataset = DatasetService.get_dataset_by_id(dataset_id=dataset_id, session_store=session_store)
 
-    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path']:
+    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path'] \
+            and os.path.exists(dataset.tags['local_path'][dataset.id]):
         ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id])
 
         unnamed_cols = [col for col in ret_df.columns if 'unnamed' in col.lower()]
@@ -185,6 +215,8 @@ def get_or_download_dataframe(dataset_id, session_store):
 
 @callback(
     Output('mapbox-plot-place-holder', 'children'),
+    Output('scatter-plot-div', 'children'),
+    Output('local', 'data', allow_duplicate=True),
     Input('load-data-for-annotation', 'n_clicks'),
     State('annotation-select-dataset', 'value'),
     State('local', 'data'),
@@ -205,40 +237,80 @@ def load_mapbox_plot(load_data, selected_dataset, local_storage):
         aside = dmc.Stack([dmc.Aside(
             p="xs",
             width={"base": 45},
-            height=100,
+            height=200,
             fixed=True,
             position={"right": 20, "top": "50%"},
             children=dmc.Stack([
-                dmc.ActionIcon(
-                    DashIconify(icon='flat-color-icons:import', width=30,
-                                id='import-annotation-side-action-item'),
-                    size="md",
-                    disabled=False,
-                    id='import-annotations'
+                dmc.Tooltip(
+                    label='Import Annotations',
+                    transition="slide-right",
+                    transitionDuration=300,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon='flat-color-icons:import', width=30,
+                                    id='import-annotation-side-action-item'),
+                        size="md",
+                        disabled=False,
+                        id='import-annotations'
+                    )
                 ),
-                dmc.ActionIcon(
-                    DashIconify(icon='mdi:interaction-tap', width=30, color='dark-gray',
-                                id='label-data-side-action-item'),
-                    size="md",
-                    id='annotate-plot-side-panel',
-                    disabled=True
+                dmc.Tooltip(
+                    label='Show residuals in line plot',
+                    transition="slide-right",
+                    transitionDuration=300,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon='mdi:interaction-tap', width=30, color='dark-gray',
+                                    id='jump-plot-side-panel-anno'),
+                        size="md",
+                        id='jump-plot-side-panel-btn-anno',
+                        disabled=True
+                    )
+                ),
+                dmc.Tooltip(
+                    label='Reset Annotations',
+                    transition="slide-right",
+                    transitionDuration=300,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon='icon-park:delete', width=30, color='dark-gray',
+                                    id='label-data-side-action-item'),
+                        size="md",
+                        id='delete-annotatation-side-panel',
+                        disabled=False
+                    )
+                ),
+                dmc.Tooltip(
+                    label='Annotate Selected Points',
+                    transition="slide-right",
+                    transitionDuration=300,
+                    children=dmc.ActionIcon(
+                        DashIconify(icon='foundation:annotate', width=30, color='dark-gray',
+                                    id='annotate-data-side-action-item'),
+                        size="md",
+                        id='annotate-points-side-side-panel',
+                        disabled=True
+                    )
                 )
             ], mt='5px', align='center'),
         )])
+
+        patch = Patch()
+        patch[AppConfig.WORKING_DATASET] = selected_dataset
 
         return dmc.Stack([
             ctas,
             dcc.Graph(figure=mapbox_plot, style={'width': '100%'}, id={'type': 'plotly', 'index': 'annotate-map-plot'}),
             aside
 
-        ], style={'width': '100%'})
+        ], style={'width': '100%'}), dmc.Stack(
+            get_residual_scatter_plot(df_id=selected_dataset, session_store=session, col_to_plot='Residuals'),
+            style={'width': '100%'}
+        ), patch
 
 
 def get_filter_cta_buttons():
     fiter_cta_buttons = dmc.Stack([
         dmc.Center(
             dmc.Text("Show Filtered Residuals",
-                     style={"fontSize": 17, "color": "#009688"})
+                     style={"fontSize": 19, "color": "#009688"})
         ),
 
         dmc.Group([
@@ -368,51 +440,13 @@ def get_upload_annotations_modal(du, session):
                 uploader,
                 dmc.Space(h=12),
                 dmc.Group(dmc.Button(
-                    "Select Columns",
+                    "Load Annotations",
                     variant='outline',
                     color='info',
                     id='select-annotation-columns-modal-btn'
                 ), position='center'),
 
                 dmc.Space(h=12),
-
-                # dmc.Group(children=[
-                #     dmc.Select(
-                #         label='Latitude/ Northing',
-                #         description='Select Latitude or Easting Column',
-                #         required=True,
-                #         searchable=True,
-                #         clearable=False,
-                #         disabled=True,
-                #         id='select-lat-nort-column-btn'
-                #     ),
-                #     dmc.Select(
-                #         label='Longitude/ Easting',
-                #         description='Select Longitude or Easting Column',
-                #         required=True,
-                #         searchable=True,
-                #         clearable=False,
-                #         disabled=True,
-                #         id='select-lon-east-column-btn'
-                #     ),
-                #     dmc.Select(
-                #         label='Label',
-                #         description='Select label column',
-                #         required=True,
-                #         searchable=True,
-                #         clearable=False,
-                #         disabled=True,
-                #         id='select-label-column-btn'
-                #     ),
-                #     dmc.Button(
-                #         'Apply',
-                #         variant='filled',
-                #         color='warning',
-                #         id='apply-annotation-btn'
-                #     )
-                # ]
-                #     , grow=True, position='center', align='end', className='hide-div',
-                #     id='anno-upload-col-selection-group'),
 
                 dmc.Space(h=20),
                 dmc.Group(
@@ -434,6 +468,97 @@ def get_upload_annotations_modal(du, session):
 
     return modal
 
+
+def add_annotations_modal():
+    modal = dmc.Modal(
+        title="Annotate",
+        id="add-annotations-modal",
+        zIndex=10000,
+        opened=False,
+        size="50%",
+        centered=True,
+        children=[
+            dmc.Stack([
+                dmc.Select(
+                    label='Anomaly Class',
+                    data=['Shipwreck', 'UXO', 'Turn', 'Other'],
+                    clearable=False,
+                    searchable=False,
+                    id='annotation-class-select'
+                ),
+                dmc.Group(
+                    [
+                        dmc.Button("Label Anomaly",
+                                   id='add-annotation-modal-btn'),
+                        dmc.Button(
+                            "Close",
+                            color="red",
+                            variant="outline",
+                            id="close-annotation-modal-btn",
+                        ),
+                    ],
+                    position="right",
+                ),
+            ])
+        ],
+    )
+
+    return modal
+
+
+@callback(
+    Output('local', 'data', allow_duplicate=True),
+    Input('add-annotation-modal-btn', 'n_clicks'),
+    State({'type': ALL, 'index': 'annotate-residual-plot'}, "selectedData"),
+    State('annotation-class-select', "value"),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def save_annotation_point(clicked, selected_points, selected_label, local_storage):
+    triggered = callback_context.triggered_id
+    if not clicked or triggered != 'add-annotation-modal-btn' or not len(selected_points):
+        raise PreventUpdate
+    selected_points = selected_points[0]
+    patch = Patch()
+
+    indices = [sd['x'] for sd in selected_points['points']]
+    anomaly_start_index = [np.min(indices)]
+    anomaly_end_index = [np.max(indices)]
+    selected_label = [selected_label]
+
+    selected_dataset = local_storage[AppConfig.WORKING_DATASET]
+
+    if AppConfig.ANNOTATION not in local_storage:
+        patch[AppConfig.ANNOTATION] = {}
+
+    if AppConfig.ANNOTATION in local_storage and selected_dataset not in AppConfig.ANNOTATION:
+        patch[AppConfig.ANNOTATION][selected_dataset] = {}
+
+    if AppConfig.ANNOTATION in local_storage and selected_dataset in local_storage[AppConfig.ANNOTATION] and \
+            'Start' in local_storage[AppConfig.ANNOTATION][selected_dataset]:
+        patch[AppConfig.ANNOTATION][selected_dataset]['Start'].extend(anomaly_start_index)
+        patch[AppConfig.ANNOTATION][selected_dataset]['End'].extend(anomaly_end_index)
+        patch[AppConfig.ANNOTATION][selected_dataset]['Label'].extend(selected_label)
+    else:
+        patch[AppConfig.ANNOTATION][selected_dataset]['Start'] = np.array(anomaly_start_index)
+        patch[AppConfig.ANNOTATION][selected_dataset]['End'] = np.array(anomaly_end_index)
+        patch[AppConfig.ANNOTATION][selected_dataset]['Label'] = np.array(selected_label)
+
+    return patch
+
+
+clientside_callback(
+    """
+    function(nc1, nc2, opened) {
+        return opened ? false: true
+    }
+    """,
+    Output("add-annotations-modal", "opened", allow_duplicate=True),
+    Input("add-annotation-modal-btn", "n_clicks"),
+    Input('close-annotation-modal-btn', 'n_clicks'),
+    State("add-annotations-modal", "opened"),
+    prevent_initial_call=True,
+)
 
 clientside_callback(
     """
@@ -469,6 +594,7 @@ def open_import_annotations_modal(btn_clicked):
     # Output('select-lon-east-column-btn', 'data'),
     # Output('select-lat-nort-column-btn', 'data'),
     Output('local', 'data'),
+    Output("select-annotation-columns-modal-btn", "loading", allow_duplicate=True),
     Input('select-annotation-columns-modal-btn', 'n_clicks'),
     State('annotation-select-dataset', 'value'),
     State('local', 'data'),
@@ -536,19 +662,22 @@ def display_col_selection_group(btn_clicked, selected_dataset, local_storage):
         if AppConfig.ANNOTATION not in local_storage:
             patch[AppConfig.ANNOTATION] = {}
 
-        if AppConfig.ANNOTATION in local_storage and selected_dataset in local_storage[AppConfig.ANNOTATION]:
+        if AppConfig.ANNOTATION in local_storage and selected_dataset not in local_storage[AppConfig.ANNOTATION]:
+            patch[AppConfig.ANNOTATION][selected_dataset] = {}
+
+        if AppConfig.ANNOTATION in local_storage and selected_dataset in local_storage[AppConfig.ANNOTATION] \
+                and 'Latitude' in local_storage[AppConfig.ANNOTATION][selected_dataset]:
             patch[AppConfig.ANNOTATION][selected_dataset]['Longitude'].extend(list(np.array(df['Longitude'])))
             patch[AppConfig.ANNOTATION][selected_dataset]['Latitude'].extend(list(np.array(df['Latitude'])))
             patch[AppConfig.ANNOTATION][selected_dataset]['Class'].extend(list(np.array(df['Class'])))
             patch[AppConfig.ANNOTATION][selected_dataset]['Type'].extend(list(np.array(df['Type'])))
         else:
-            patch[AppConfig.ANNOTATION][selected_dataset] = {}
             patch[AppConfig.ANNOTATION][selected_dataset]['Longitude'] = np.array(df['Longitude'])
             patch[AppConfig.ANNOTATION][selected_dataset]['Latitude'] = np.array(df['Latitude'])
             patch[AppConfig.ANNOTATION][selected_dataset]['Class'] = np.array(df['Class'])
             patch[AppConfig.ANNOTATION][selected_dataset]['Type'] = np.array(df['Type'])
 
-        return patch
+        return patch, False
 
 
 def extract_zip_file(data_path, move_folder_name):
@@ -570,3 +699,270 @@ def extract_zip_file(data_path, move_folder_name):
             print(e)
     os.remove(data_path)
     return extract_path
+
+
+@callback(
+    Output('local', 'data', allow_duplicate=True),
+    Output('filter-residual-button-anno', 'n_clicks', allow_duplicate=True),
+    Input('delete-annotatation-side-panel', 'n_clicks'),
+    State('annotation-select-dataset', 'value'),
+    State('filter-residual-button-anno', 'n_clicks'),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def remove_annotations_from_session(delete_annotation, selected_dataset, current_clicks, local_storage):
+    if callback_context.triggered_id != 'delete-annotatation-side-panel' or not delete_annotation:
+        return no_update, no_update
+
+    current_clicks = current_clicks or 0
+    current_clicks = current_clicks + 1
+
+    patch = Patch()
+    if AppConfig.ANNOTATION in local_storage and selected_dataset in local_storage[AppConfig.ANNOTATION]:
+        del patch[AppConfig.ANNOTATION][selected_dataset]
+        return patch, current_clicks
+    else:
+        return no_update, current_clicks
+
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        return true
+    }
+    """,
+    Output("select-annotation-columns-modal-btn", "loading"),
+    Input("select-annotation-columns-modal-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
+@cache.memoize(timeout=5000)
+def get_residual_scatter_plot(df_id, session_store, col_to_plot):
+    # df_id = session_store[AppConfig.WORKING_DATASET]
+
+    df = get_or_download_dataframe(dataset_id=df_id, session_store=session_store)
+
+    fig_residual = px.scatter(df.reset_index().iloc[0:50000], x='index', y=col_to_plot,
+                              labels={
+                                  "index": "Index",
+                                  col_to_plot: col_to_plot.replace('_', ' '),
+                              }, title="Residuals vs Recording Index"
+                              )
+    colors = df.reset_index().loc[0:50000, 'Residuals']
+
+    fig_residual.data[0].update(mode='lines+markers')
+    fig_residual.update_layout(template='plotly_dark')
+    fig_residual.update_traces(marker={'size': 2, 'color': colors, 'showscale': True, 'colorscale': 'Viridis'})
+
+    return dcc.Graph(figure=fig_residual, style={'width': '100%'},
+                     id={'type': 'plotly', 'index': 'annotate-residual-plot'})
+
+
+@callback(
+    Output("jump-plot-side-panel-btn-anno", "disabled"),
+    Output("jump-plot-side-panel-anno", "color"),
+    Input({'type': 'plotly', 'index': 'annotate-map-plot'}, "selectedData"),
+)
+def enable_jump_plot(selected_points):
+    if selected_points and len(selected_points['points']) > 0:
+        return False, "blue"
+    else:
+        return True, "gray"
+
+
+@callback(
+    Output("annotate-points-side-side-panel", "disabled"),
+    Output("annotate-data-side-action-item", "color"),
+    Output("toast-placeholder-div", "children", allow_duplicate=True),
+    Input({'type': 'plotly', 'index': 'annotate-residual-plot'}, "selectedData"),
+    prevent_initial_call=True
+)
+def enable_annotate_button(selected_points):
+    if selected_points and len(selected_points['points']) > 0:
+        indices = [sd['x'] for sd in selected_points['points']]
+        return False, "green", Toast.get_toast("Points Selected",
+                                               f'Selected {np.max(indices) - np.min(indices)} points')
+    else:
+        return True, "gray", no_update
+
+
+@callback(
+    Output('add-annotations-modal', 'opened'),
+    Input("annotate-points-side-side-panel", "n_clicks"),
+)
+def open_annotate_modal(clicked):
+    triggered = callback_context.triggered_id
+    if not clicked or triggered != 'annotate-points-side-side-panel':
+        raise PreventUpdate
+    return True
+
+
+@callback(
+    Output({'type': 'plotly', 'index': 'annotate-residual-plot'}, 'figure'),
+    Input('jump-plot-side-panel-btn-anno', 'n_clicks'),
+    State({'type': 'plotly', 'index': 'annotate-map-plot'}, "selectedData"),
+    State('annotation-select-dataset', 'value'),
+    State('local', "data"),
+    prevent_initial_call=True
+)
+def patch_figure(clicked, selected_points, dataset_selected, session_store):
+    if not clicked:
+        raise PreventUpdate
+
+    if selected_points and len(selected_points) > 0 and clicked:
+        mod_dict = {sd['customdata'][0]: sd['customdata'][1] for sd in selected_points['points'] if 'customdata' in sd}
+        sorted_dict = sorted(mod_dict.items(), key=lambda x: abs(x[1]), reverse=True)[0]
+
+        df_resid = get_or_download_dataframe(dataset_id=dataset_selected, session_store=session_store)
+
+        patch = Patch()
+
+        min_index = max(0, sorted_dict[0] - 25000)
+        max_index = min(len(df_resid), min_index + 50000)
+
+        patch['data'][0]['x'] = df_resid.reset_index().loc[min_index:max_index, 'index'].to_numpy()
+        patch['data'][0]['y'] = df_resid.reset_index().loc[min_index:max_index, 'Residuals'].to_numpy()
+        patch['data'][0]['marker']['color'] = df_resid.reset_index().loc[min_index:max_index, 'Residuals'].to_numpy()
+        patch['data'][0]['marker']['showscale'] = True
+
+        patch['layout']['annotations'] = [dict(
+            x=sorted_dict[0],
+            y=sorted_dict[1],
+            text="Point with max residual from the selected points",
+            showarrow=True,
+            arrowhead=1,
+        )
+        ]
+        print(f'Updated plot: {sorted_dict}')
+    else:
+        patch = Patch()
+        patch['layout']['annotations'].clear()
+    return patch
+
+
+def get_annotated_df(dataset_id, session_store):
+    df = get_or_download_dataframe(dataset_id=dataset_id, session_store=session_store).reset_index()
+    df['Label'] = 'BACKGROUND'
+
+    if AppConfig.ANNOTATION in session_store and dataset_id in session_store[AppConfig.ANNOTATION]:
+        annotations = session_store[AppConfig.ANNOTATION][dataset_id]
+    else:
+        annotations = {}
+
+    annotations = {k: annotations[k] for k in ('Start', 'End', 'Label')}
+
+    annotations = pd.DataFrame(annotations)
+
+    for index, row in annotations.iterrows():
+        df.loc[row['Start']:row['End'], 'Label'] = row['Label']
+
+    return df
+
+
+clientside_callback(
+    """
+    function set_loading_state(n_clicks) {
+        return true
+    }
+    """,
+    Output('save-annotated-dataset-btn', 'loading'),
+    Input('save-annotated-dataset-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+
+
+@callback(
+    Output('export-annotated-dataset-btn', 'href', allow_duplicate=True),
+    Output('export-annotated-dataset-btn', 'disabled', allow_duplicate=True),
+    Output('save-annotated-dataset-btn', 'loading', allow_duplicate=True),
+    Input('save-annotated-dataset-btn', 'n_clicks'),
+    State('annotate-select-project', 'value'),
+    State('local', 'data'),
+    prevent_initial_call=True
+)
+def save_annotated_dataset(save_button, project_id, local_storage):
+    triggered = callback_context.triggered_id
+    if triggered != 'save-annotated-dataset-btn' or not save_button or not project_id or project_id == '':
+        raise PreventUpdate
+
+    is_update = False
+
+    active_project = ProjectsService.ProjectService.get_project_by_id(session=local_storage, project_id=project_id)
+
+    existing_dataset_id = None
+    existing_tags = None
+    for dat in active_project.datasets:
+        if dat.dataset.tags['state'] == 'ANNOTATED':
+            is_update = True
+            existing_dataset_id = dat.dataset.id
+            existing_tags = dat.dataset.tags
+
+    new_dataset_id = str(uuid.uuid4()) if not is_update else existing_dataset_id
+
+    parent_dataset_id = local_storage[AppConfig.WORKING_DATASET]
+
+    annotated_df = get_annotated_df(dataset_id=parent_dataset_id, session_store=local_storage)
+
+    save_location = os.path.join(
+        AppConfig.PROJECT_ROOT,
+        'data',
+        local_storage[AppIDAuthProvider.APPID_USER_NAME],
+        'exported',
+        f"{new_dataset_id}.csv"
+    )
+
+    annotated_df.to_csv(save_location)
+
+    parent_dataset = DatasetService.get_dataset_by_id(dataset_id=parent_dataset_id, session_store=local_storage)
+    azr_path = '{}.csv'.format(new_dataset_id)
+
+    try:
+        if not is_update:
+
+            link_state = 'ANNOTATED'
+            tags = {'state': link_state}
+            tags['export'] = {'CSV': f'{new_dataset_id}.csv'}
+
+            if 'Observation Dates' in parent_dataset.tags:
+                tags['Observation Dates'] = parent_dataset.tags['Observation Dates']
+
+            new_dataset: CreateNewDatasetDTO = CreateNewDatasetDTO(
+                dataset=CreateDatasetDTO(
+                    parent_dataset_id=parent_dataset_id,
+                    id=new_dataset_id,
+                    name=parent_dataset.name,
+                    dataset_type_id=parent_dataset.dataset_type.id,
+                    project_id=project_id,
+                    path=f"datasets/{local_storage[AppIDAuthProvider.APPID_USER_BACKEND_ID]}/{new_dataset_id}.csv",
+                    tags=tags
+                ),
+                project_dataset_state=link_state
+            )
+            created_dataset = DatasetService.create_new_dataset(dataset=new_dataset, session=local_storage)
+        else:
+            print(f'Updating existing Annotated dataset with id: {new_dataset_id}')
+            updated_dataset = DatasetService.update_dataset(dataset_id=existing_dataset_id,
+                                                            session_store=local_storage,
+                                                            dataset_update_dto=DatasetUpdateDTO(
+                                                                tags=existing_tags))
+
+        uploader_thread = threading.Thread(
+            target=BlobConnector.upload_blob, kwargs={
+                'blob_name': azr_path,
+                'user_id': local_storage[AppIDAuthProvider.APPID_USER_BACKEND_ID],
+                'local_file_path': save_location,
+                'linked': False
+            })
+        uploader_thread.start()
+
+        cache.delete_memoized(DatasetService.get_dataset_by_id)
+        cache.delete_memoized(ProjectsService.ProjectService.get_project_by_id)
+
+        session[AppConfig.WORKING_DATASET] = new_dataset_id
+
+        href = '/download/{}.{}'.format(new_dataset_id, 'CSV')
+
+        return href, False, False
+    except:
+        pass

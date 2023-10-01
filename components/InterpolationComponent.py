@@ -117,7 +117,8 @@ def get_or_download_dataframe(session_store, dataset_id=None):
 
     dataset: DatasetResponse = [d.dataset for d in project.datasets if d.dataset.id == dataset_id][0]
 
-    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path']:
+    if 'local_path' in dataset.tags and dataset_id in dataset.tags['local_path'] \
+            and os.path.exists(dataset.tags['local_path'][dataset.id]):
         ret_df = pd.read_csv(dataset.tags['local_path'][dataset.id])
 
         unnamed_cols = [col for col in ret_df.columns if 'unnamed' in col.lower()]

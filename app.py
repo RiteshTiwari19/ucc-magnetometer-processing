@@ -1,4 +1,5 @@
 import os
+import time
 
 import dash
 import dash_bootstrap_components as dbc
@@ -113,10 +114,12 @@ def send_notification(inp):
     notification = auth.redis_queue.get_nowait()
 
     if notification:
+        print(f'Notification Received: {notification}')
         notification = notification.split('__')
         notification_meta = notification[0].split(';')
         notification = NotificationProvider.notify(notification[1], action=notification_meta[1],
                                                    notification_id=notification_meta[0])
+        time.sleep(2)
         return notification
     else:
         return no_update
@@ -181,4 +184,4 @@ ModalComponent.toggle_upload_dataset_modal(app)
 Toast.open_toast(app)
 
 if __name__ == "__main__":
-    app.run_server(host="0.0.0.0", debug=True)
+    app.run_server(host="localhost", debug=True)

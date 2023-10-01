@@ -705,8 +705,8 @@ def set_data_for_interpolation_state(
     existing_dataset_id = None
     existing_tags = None
     for dat in active_project.datasets:
-        if str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
-                and dat.dataset.tags['state'] == 'RESIDUALS_COMPUTED':
+        if (str(dat.dataset.parent_dataset_id) == str(existing_dataset.id) \
+                and dat.dataset.tags['state'] == 'RESIDUALS_COMPUTED') or dat.dataset.tags['state'] == 'RESIDUALS_COMPUTED':
             existing_dataset_id = dat.dataset.id
             existing_tags = dat.dataset.tags
             existing_tags['state'] = 'RESIDUALS_COMPUTED'

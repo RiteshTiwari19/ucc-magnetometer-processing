@@ -1,3 +1,5 @@
+import copy
+import os
 import time
 from typing import List
 
@@ -11,10 +13,12 @@ from dash.exceptions import PreventUpdate
 from dash_iconify import DashIconify
 
 from Celery import background_callback_manager
+from FlaskCache import cache
 from api import ProjectsService
 from api.DatasetService import DatasetService
 from api.DatasetTypeService import DatasetTypeService
 from api.dto import DatasetFilterDTO, DatasetsWithDatasetTypeDTO, DatasetUpdateDTO
+from auth import AppIDAuthProvider
 from components import Toast
 from dataservices.RedisQueue import RedisQueue
 from utils.Consts import Consts
@@ -55,7 +59,7 @@ def get_datasets(session_store, datasets_filter: DatasetFilterDTO | None = None)
                     "Dataset State",
                     dcc.Dropdown(
                         options=['DETACHED', 'LINKED', 'DIURNALLY_CORRECTED', 'RESIDUALS_COMPUTED',
-                                 'INTERPOLATED'],
+                                 'INTERPOLATED', 'ANNOTATED'],
                         value='DETACHED',
                         multi=True,
                         id={'idx': "link-ds-search-project-dropdown", 'type': 'backend-search-dropdown',
@@ -175,7 +179,7 @@ def get_datasets_from_db(datasets_filter, session_store):
                                     dmc.Text(dataset.modified_at.strftime("%m/%d/%Y, %H:%M:%S"), color="dimmed",
                                              size='xs')
                                 ]),
-                                dmc.Group(generate_tag_badges(dataset),
+                                dmc.Group(generate_tag_badges(dataset, session_store),
                                           position='left',
                                           spacing='xs')
                             ]),
@@ -430,7 +434,7 @@ def file_download_link(dataset, data_type='CSV'):
     return location
 
 
-def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
+def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO, session_store):
     tag_buttons = []
     idx = 0
 
@@ -460,16 +464,25 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
         values = []
         if key == 'export' and len(dataset.tags[key].keys()) > 0:
             for key_inner, value_inner in dataset.tags[key].items():
-                lnk_btn = dbc.Button(
-                    key_inner,
-                    href="/download/{}.{}".format(dataset.id, key_inner),
-                    target="_blank",
-                    external_link=True,
-                    outline=True,
-                    color='primary'
-                )
 
-                values.append(lnk_btn)
+                data_path, dir = check_if_export_exists(session_store, value_inner)
+
+                if os.path.exists(os.path.join(dir, data_path)):
+                    lnk_btn = dbc.Button(
+                        key_inner,
+                        href="/download/{}.{}".format(dataset.id, key_inner),
+                        target="_blank",
+                        external_link=True,
+                        outline=True,
+                        color='primary'
+                    )
+                    values.append(lnk_btn)
+                else:
+                    dataset_tags = copy.deepcopy(dataset.tags)
+                    del dataset_tags['export'][key_inner]
+                    updated_dataset = DatasetService.update_dataset(dataset_id=dataset.id,
+                                                  session_store=session_store,
+                                                  dataset_update_dto=DatasetUpdateDTO(tags=dataset_tags))
 
             download_group_children = []
 
@@ -487,7 +500,8 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
                         size='sm'
                     )])
 
-            tag_buttons.append(download_group)
+            if len(values) > 0:
+                tag_buttons.append(download_group)
 
     for project in dataset.projects:
         btn_id = f'dataset-disabled-tag-btn-{idx}'
@@ -508,6 +522,16 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO):
         ])
         tag_buttons.append(btn_to_add)
     return tag_buttons
+
+
+def check_if_export_exists(session_store, value_inner):
+    dir = os.path.join(os.path.dirname(os.getcwd()), 'mag-project', 'data',
+                       session_store[AppIDAuthProvider.APPID_USER_NAME], 'exported')
+    data_path = value_inner
+    if len(data_path.split('\\')) > 1:
+        dir = os.path.join(dir, data_path.split('\\')[0])
+        data_path = data_path.split('\\')[-1]
+    return data_path, dir
 
 
 @callback(
@@ -675,6 +699,7 @@ def process_export_request(set_progress, btn_clicked, export_dataset_columns, lo
                                                         dataset_update_dto=DatasetUpdateDTO(tags=existing_tags))
 
         redis_queue.put(f'data-export;update__{Consts.FINISHED_DISPLAY_STATE};Done;Exported File!')
+        cache.delete_memoized(DatasetService.get_dataset_by_id)
         redis_queue.close_connection()
 
         return no_update

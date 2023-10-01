@@ -33,6 +33,10 @@ class ResidualService:
 
         df['id'] = [uuid.uuid4() for _ in range(len(df.index))]
 
+        df.set_index('Datetime', inplace=True)
+        df = df[~df.index.duplicated(keep='first')]
+        df = df.sort_index().reset_index()
+
         df['Magnetic_Field_Smoothed'] = df['Magnetic_Field'].rolling(window=observed_smoothing_constant,
                                                                      win_type='boxcar', center=True,
                                                                      min_periods=1).mean()
@@ -40,7 +44,7 @@ class ResidualService:
         df['Magnetic_Field_Ambient'] = df['Magnetic_Field_Smoothed'] \
             .rolling(window=ambient_smoothing_constant,
                      win_type='boxcar',
-                     center=True,
+                     center=False,
                      min_periods=1).mean()
 
         df['Baseline'] = df['Magnetic_Field_Smoothed'] - df['Magnetic_Field_Ambient']
