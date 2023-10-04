@@ -373,7 +373,7 @@ def save_and_validate_survey_data(set_progress, session_store,
                                       user_id=session_store[AppIDAuthProvider.APPID_USER_BACKEND_ID],
                                       local_file_path=f'{save_path}\\{dataset_name}.csv')
 
-            return f'{save_path}\\{dataset_name}.csv', observation_dates
+            return f'{save_path}\\{dataset_name}.csv', None, observation_dates
         else:
             return None, err_message, None
 

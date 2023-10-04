@@ -40,7 +40,7 @@ CONTENT_STYLE = {
 @auth.check
 def download(path):
     """Serve a file from the upload directory."""
-    dir = os.path.join(os.path.dirname(os.getcwd()), 'mag-project', 'data',
+    dir = os.path.join(os.getcwd(), 'data',
                        session[AppIDAuthProvider.APPID_USER_NAME], 'exported')
 
     format = path.split('.')[-1]

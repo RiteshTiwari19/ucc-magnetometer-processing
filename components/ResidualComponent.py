@@ -147,7 +147,7 @@ def get_mag_data_page(session, configured_du):
 
         html.Br(),
 
-        dmc.Text("Clip Residuals",
+        dmc.Text("Clip Data",
                  style={"fontSize": 17, "color": "#009688"}),
 
         html.Br(),

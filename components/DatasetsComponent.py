@@ -525,7 +525,7 @@ def generate_tag_badges(dataset: DatasetsWithDatasetTypeDTO, session_store):
 
 
 def check_if_export_exists(session_store, value_inner):
-    dir = os.path.join(os.path.dirname(os.getcwd()), 'mag-project', 'data',
+    dir = os.path.join(os.getcwd(), 'data',
                        session_store[AppIDAuthProvider.APPID_USER_NAME], 'exported')
     data_path = value_inner
     if len(data_path.split('\\')) > 1:
